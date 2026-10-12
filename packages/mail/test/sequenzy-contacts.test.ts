@@ -36,6 +36,7 @@ const contact: Contact = {
     preferencesUrl: "https://convt.app/email/preferences?t=x",
     desktopBuyer: true,
     proStatus: "none",
+    paidSegment: "paid",
   },
 };
 
@@ -58,6 +59,8 @@ describe("Sequenzy contacts", () => {
         externalId: "usr_test1",
         firstName: "Sam",
         status: "active",
+        enrollInSequences: false,
+        optInMode: "confirmed",
         tags: ["convt-account"],
         lists: ["list_fake"],
         customAttributes: contact.attributes,
@@ -67,7 +70,16 @@ describe("Sequenzy contacts", () => {
     });
   });
 
-  test("a signup leaves out createdAt and lists, so Sequenzy's defaults apply", async () => {
+  test("segment moves use the bulk tag endpoint with automations disabled", async () => {
+    const { seen, client } = recording(() => Response.json({ success: true }));
+    await client.setSegment({ externalId: "usr_test1", segment: "paid" });
+    expect(seen.map((request) => request.body)).toEqual([
+      { externalIds: ["usr_test1"], tags: ["convt-paid"], triggerAutomations: false },
+      { externalIds: ["usr_test1"], tags: ["convt-free"] },
+    ]);
+  });
+
+  test("a signup omits history fields but still disables enrollment and DOI", async () => {
     const { seen, client } = recording(() => Response.json({ success: true }));
     await client.create({
       contact: { ...contact, firstName: "" },
@@ -78,6 +90,8 @@ describe("Sequenzy contacts", () => {
     const body = seen[0].body as Record<string, unknown>;
     expect("createdAt" in body).toBe(false);
     expect("lists" in body).toBe(false);
+    expect(body.enrollInSequences).toBe(false);
+    expect(body.optInMode).toBe("confirmed");
     expect("firstName" in body).toBe(false);
   });
 

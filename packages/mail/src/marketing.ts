@@ -14,10 +14,12 @@
 import { escapeHtml, type Rendered } from "./templates";
 
 /** Bump when any marketing template's output changes. */
-export const marketingTemplateVersion = 1;
+export const marketingTemplateVersion = 7;
 
 export const unsubscribeTag = "{{unsubscribeUrl}}";
 export const preferencesTag = "{{preferencesUrl}}";
+/** Sequenzy fills this from the company address in its settings. */
+export const companyAddressTag = "{{company.address}}";
 
 const color = {
   page: "#f7f8f7",
@@ -159,6 +161,8 @@ const footerReason =
 
 /** Every marketing email goes through here, so none can leave out the footer. */
 export function renderMarketing(email: MarketingEmail, footer: FooterInput): MarketingRendered {
+  const letter = letterKinds.find((kind) => letters[kind].subject === email.subject);
+  if (letter) return renderLetter(letters[letter]);
   const site = footer.siteUrl.replace(/\/$/, "");
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
@@ -190,80 +194,194 @@ export function renderMarketing(email: MarketingEmail, footer: FooterInput): Mar
   return { subject: email.subject, preheader: email.preheader, text, html };
 }
 
-/** Sent once by the signup sequence. */
-export function welcomeEmail(siteUrl: string): MarketingEmail {
-  const site = siteUrl.replace(/\/$/, "");
-  return {
-    subject: "Welcome to convt",
-    preheader: "Right-click a file, pick a format. Here's how to start.",
-    heading: "Convert any file with a right-click.",
+const letterKinds = ["welcome-free", "welcome-paid", "lifetime", "lifetime-free"] as const;
+type ApprovedLifecycle = (typeof letterKinds)[number];
+const lifecycleCss = `<style>:root{color-scheme:light dark;supported-color-schemes:light dark}@media (max-width:620px){.wrap{width:100%!important;max-width:100%!important}.pad{padding-left:24px!important;padding-right:24px!important}}@media (prefers-color-scheme: dark){.bg{background:#0a0b0b!important}.ink{color:#edefee!important}.ink2{color:#a1a6a3!important}.ink3{color:#868b88!important}.brand,.link{color:#3fcb84!important}.rule{border-color:#232726!important}.lt{display:none!important}.dk{display:block!important;max-height:none!important}}[data-ogsc] .ink{color:#edefee!important}[data-ogsc] .ink2{color:#a1a6a3!important}[data-ogsc] .brand,[data-ogsc] .link{color:#3fcb84!important}</style>`;
+const lifecycleLogo = `<img class="lt" src="https://convt.app/brand/convt-lockup-on-light.png" width="89" height="22" alt="convt" style="display:block;width:89px;height:22px;border:0"><!--[if !mso]><!--><img class="dk" src="https://convt.app/brand/convt-lockup-on-dark.png" width="89" height="22" alt="convt" style="display:none;width:89px;height:22px;border:0;max-height:0;overflow:hidden;mso-hide:all"><!--<![endif]-->`;
+const lifecycleFooter = `${companyAddressTag} &middot; <a class="ink3" href="${unsubscribeTag}" style="color:#6c716e;text-decoration:underline">unsubscribe</a> &middot; <a class="ink3" href="${preferencesTag}" style="color:#6c716e;text-decoration:underline">preferences</a>`;
+const letterFont = "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+const greeting = "hey {{firstName|there}},";
+const downloadUrl = "https://convt.app/download";
+
+/** One paragraph, a button, or a link in a letter-style email. */
+type LetterBlock =
+  | { kind: "p"; text: string }
+  | { kind: "item"; title: string; body: string }
+  | { kind: "button"; href: string; label: string }
+  | { kind: "link"; href: string; label: string };
+
+/** A letter-style email. `blocks` is everything between the greeting and the signature. */
+type Letter = { subject: string; preheader: string; title: string; blocks: LetterBlock[] };
+
+// Each letter closes with its own invitation to reply, so the line doesn't read
+// as pasted into every email.
+const letters: Record<ApprovedLifecycle, Letter> = {
+  "welcome-free": {
+    subject: "welcome to convt",
+    preheader: "welcome to convt",
+    title: "welcome to convt",
+    blocks: [
+      { kind: "p", text: "i'm leo, i'm making convt. thanks for giving it a try." },
+      {
+        kind: "p",
+        text: "you've got 7 days free. download it, right-click any file, pick a format. that's it, and it all stays on your computer.",
+      },
+      { kind: "button", href: downloadUrl, label: "download convt" },
+      {
+        kind: "p",
+        text: "if something breaks, feels off, or you wish it did something it doesn't, hit reply and tell me.",
+      },
+    ],
+  },
+  "welcome-paid": {
+    subject: "thanks for buying convt",
+    preheader: "thanks for buying convt",
+    title: "thank you",
     blocks: [
       {
         kind: "p",
-        text: "Thanks for making a convt account. convt converts images, video, audio and documents on your own computer, so your files never get uploaded.",
+        text: "i'm leo, i'm making convt. thank you for buying it. that genuinely means a lot.",
       },
-      {
-        kind: "steps",
-        items: [
-          {
-            title: "Download the app",
-            body: "convt runs on macOS, Windows and Linux. Every format works offline.",
-          },
-          {
-            title: "Right-click any file",
-            body: "Choose Convert with convt and pick a format. A HEIC photo becomes a JPG, a MOV becomes an MP4.",
-          },
-          {
-            title: "Or use the command line",
-            body: "The same engine, for scripts and whole folders.",
-          },
-        ],
-      },
-      { kind: "code", text: "convt photos/ --to jpeg -r" },
-      { kind: "button", href: `${site}/download`, label: "Download convt" },
       {
         kind: "p",
-        text: "The app is free for 7 days from your first conversion. After that, Desktop is a one-time purchase with every future desktop update, or Pro adds cloud conversions from your phone or browser.",
+        text: "if you haven't grabbed it yet, here it is. right-click any file, pick a format, done.",
       },
-      { kind: "link", href: `${site}/formats`, label: "See every format" },
+      { kind: "button", href: downloadUrl, label: "download convt" },
+      {
+        kind: "p",
+        text: "got an idea, found a bug, or stuck on something? just reply. it goes straight to me, not a support queue.",
+      },
     ],
+  },
+  // For Desktop buyers.
+  lifetime: {
+    subject: "your convt license is now lifetime",
+    preheader: "your convt license is now lifetime",
+    title: "your convt license is now lifetime",
+    blocks: [
+      {
+        kind: "p",
+        text: "when i launched convt desktop, i made it a yearly license. that was the wrong call on my part, and i'm sorry. you paid for an app, not a subscription.",
+      },
+      {
+        kind: "p",
+        text: "so i've fixed it. desktop licenses are now lifetime, including yours. same key, no renewal, nothing to do.",
+      },
+      {
+        kind: "p",
+        text: "thank you for backing convt this early. it means more than you'd think.",
+      },
+      {
+        kind: "p",
+        text: "and if there's something you want convt to do next, or something that's bugging you, i'd love to hear it. just reply.",
+      },
+    ],
+  },
+  // For accounts that never bought Desktop. The 30% is a code Leo sends by hand
+  // to whoever replies; there is no automatic discount behind it.
+  "lifetime-free": {
+    subject: "convt desktop is lifetime now",
+    preheader: "it used to be yearly. that was my mistake.",
+    title: "convt desktop is lifetime now",
+    blocks: [
+      {
+        kind: "p",
+        text: "when i launched convt desktop, i made it a yearly license. that was a mistake on my part. you should be able to buy an app once and keep it, not rent it.",
+      },
+      {
+        kind: "p",
+        text: "so i've changed it. desktop is a lifetime license now: pay once, keep it, and get every future update.",
+      },
+      {
+        kind: "p",
+        text: "and since the yearly thing was my fault, i'd like to make it up to you. if you want convt desktop, reply to this email and i'll send you a code for 30% off.",
+      },
+      { kind: "button", href: "https://convt.app/#pricing", label: "see convt desktop" },
+      {
+        kind: "p",
+        text: "and if something else is holding you back, tell me that too.",
+      },
+    ],
+  },
+};
+
+function letterBlockHtml(b: LetterBlock): string {
+  switch (b.kind) {
+    case "p":
+      return `<p style="margin:0 0 16px 0">${escapeHtml(b.text)}</p>`;
+    case "item":
+      return `<p style="margin:0 0 4px 0;font-weight:600">${escapeHtml(b.title)}</p><p style="margin:0 0 16px 0">${escapeHtml(b.body)}</p>`;
+    case "button":
+      return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px 0"><tr><td bgcolor="#127a47" style="background:#127a47;border-radius:8px"><a href="${escapeHtml(b.href)}" style="display:inline-block;padding:11px 20px;font-family:${letterFont};font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${escapeHtml(b.label)}</a></td></tr></table>`;
+    case "link":
+      return `<p style="margin:0 0 16px 0"><a class="link" href="${escapeHtml(b.href)}" style="color:#127a47;font-weight:600;text-decoration:none">${escapeHtml(b.label)} &rarr;</a></p>`;
+    default: {
+      const _exhaustive: never = b;
+      return _exhaustive;
+    }
+  }
+}
+
+function letterBlockText(b: LetterBlock): string {
+  switch (b.kind) {
+    case "p":
+      return b.text;
+    case "item":
+      return `${b.title}\n${b.body}`;
+    case "button":
+    case "link":
+      return `${b.label}: ${b.href}`;
+    default: {
+      const _exhaustive: never = b;
+      return _exhaustive;
+    }
+  }
+}
+
+function letterText(letter: Letter): string {
+  const body = [greeting, ...letter.blocks.map(letterBlockText), "leo"];
+  return `${body.join("\n\n")}\n\n--\nEmail preferences: ${preferencesTag}\nUnsubscribe: ${unsubscribeTag}\n${companyAddressTag}\n`;
+}
+
+function letterHtml(letter: Letter): string {
+  const copy = letter.blocks.map(letterBlockHtml).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>${escapeHtml(letter.title)}</title>${lifecycleCss}</head><body class="bg" style="margin:0;padding:0;background:#ffffff"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" bgcolor="#ffffff"><tr><td align="center"><table class="wrap" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px"><tr><td class="pad" style="padding:48px 48px 0 48px">${lifecycleLogo}</td></tr><tr><td class="ink pad" style="padding:36px 48px 0 48px;font-family:${letterFont};font-size:16px;line-height:26px;color:#0a0a0a"><p style="margin:0 0 16px 0">${greeting}</p>${copy}<p class="ink" style="margin:12px 0 0 0">leo</p></td></tr><tr><td class="pad" style="padding:40px 48px 0 48px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="rule" style="border-top:1px solid #e6e8e7;font-size:0;line-height:0">&nbsp;</td></tr></table></td></tr><tr><td class="ink3 pad" style="padding:14px 48px 40px 48px;font-family:${letterFont};font-size:12px;line-height:18px;color:#6c716e">${lifecycleFooter}</td></tr></table></td></tr></table></body></html>`;
+}
+
+function renderLetter(letter: Letter): MarketingRendered {
+  return {
+    subject: letter.subject,
+    preheader: letter.preheader,
+    text: letterText(letter),
+    html: letterHtml(letter),
   };
 }
 
-/** For accounts that bought Desktop before it became lifetime. */
+function lifecycleEmail(kind: ApprovedLifecycle): MarketingEmail {
+  const { subject, preheader } = letters[kind];
+  return { subject, preheader, heading: subject, blocks: [] };
+}
+export function welcomeFreeEmail(_siteUrl: string): MarketingEmail {
+  return lifecycleEmail("welcome-free");
+}
+export function welcomePaidEmail(_siteUrl: string): MarketingEmail {
+  return lifecycleEmail("welcome-paid");
+}
+export function welcomeEmailForSegment(_siteUrl: string, segment: "paid" | "free"): MarketingEmail {
+  return segment === "paid" ? welcomePaidEmail(_siteUrl) : welcomeFreeEmail(_siteUrl);
+}
+export function lifetimeEmail(_siteUrl: string): MarketingEmail {
+  return lifecycleEmail("lifetime");
+}
+/** The lifetime announcement for accounts that never bought Desktop, with the 30% offer. */
+export function lifetimeFreeEmail(_siteUrl: string): MarketingEmail {
+  return lifecycleEmail("lifetime-free");
+}
+export function welcomeEmail(siteUrl: string): MarketingEmail {
+  return welcomeFreeEmail(siteUrl);
+}
 export function lifetimeDesktopEmail(siteUrl: string): MarketingEmail {
-  const site = siteUrl.replace(/\/$/, "");
-  return {
-    subject: "Your convt Desktop license is now lifetime",
-    preheader: "Every future desktop update, no renewal. Nothing for you to do.",
-    heading: "Your Desktop license is now lifetime.",
-    blocks: [
-      {
-        kind: "p",
-        text: "When you bought convt Desktop, it came with a year of updates. We've changed that for everyone who paid: a Desktop license now includes every future desktop update, with no renewal.",
-      },
-      {
-        kind: "note",
-        title: "You don't need to do anything.",
-        body: "Your current license key keeps working and now counts as lifetime. Every future desktop update works with it.",
-      },
-      {
-        kind: "checks",
-        items: [
-          "Every format, offline",
-          "Every future desktop update",
-          "Batch folders and presets",
-          "No subscription for the desktop app",
-        ],
-      },
-      { kind: "button", href: `${site}/dashboard/licenses`, label: "View your license" },
-      {
-        kind: "p",
-        text: "Thank you for buying convt early. If anything about your license looks wrong, tell us and we'll fix it.",
-      },
-      { kind: "link", href: `${site}/contact`, label: "Contact support" },
-    ],
-  };
+  return lifetimeEmail(siteUrl);
 }
 
 /** The first email of the Pro trial sequence. The trial-ending notice stays transactional. */
@@ -310,68 +428,77 @@ export type ProductUpdateInput = {
   siteUrl: string;
   subject: string;
   preheader: string;
-  heading: string;
   intro: string;
   items: Array<{ title: string; body: string }>;
   cta: { href: string; label: string };
+  /** The closing line that asks for a reply. */
+  outro: string;
 };
 
-/** News and release notes. The content is the campaign's; the frame is shared. */
-export function productUpdateEmail(input: ProductUpdateInput): MarketingEmail {
-  return {
+/**
+ * News and release notes, written as a letter from Leo like the lifecycle
+ * emails. The content is the campaign's; the frame is shared.
+ */
+export function renderProductUpdate(input: ProductUpdateInput): MarketingRendered {
+  return renderLetter({
     subject: input.subject,
     preheader: input.preheader,
-    heading: input.heading,
+    title: input.subject,
     blocks: [
       { kind: "p", text: input.intro },
-      ...input.items.map((item): MarketingBlock => ({
-        kind: "note",
-        title: item.title,
-        body: item.body,
-      })),
+      ...input.items.map((item): LetterBlock => ({ kind: "item", ...item })),
       { kind: "button", href: input.cta.href, label: input.cta.label },
       {
         kind: "link",
         href: `${input.siteUrl.replace(/\/$/, "")}/changelog`,
-        label: "Read the full changelog",
+        label: "full changelog",
       },
+      { kind: "p", text: input.outro },
     ],
-  };
-}
-
-/** The example product update the export and the previews use. */
-export function sampleProductUpdate(siteUrl: string): MarketingEmail {
-  const site = siteUrl.replace(/\/$/, "");
-  return productUpdateEmail({
-    siteUrl: site,
-    subject: "What's new in convt",
-    preheader: "Lifetime Desktop licenses and a browser extension.",
-    heading: "What's new in convt",
-    intro: "A short roundup of what changed since the last update.",
-    items: [
-      {
-        title: "Desktop is now a lifetime license",
-        body: "Buy it once and get every future desktop update. Existing Desktop keys count as lifetime too.",
-      },
-      {
-        title: "Save web images as PNG, JPG or WebP",
-        body: "The convt extension for Chrome and Edge adds Convert with convt to the image right-click menu. It converts in your browser.",
-      },
-    ],
-    cta: { href: `${site}/download`, label: "Get the latest version" },
   });
 }
 
-export type MarketingTemplateName = "welcome" | "lifetime-desktop" | "pro-trial" | "product-update";
+/** The example product update the export and the previews use. */
+export function sampleProductUpdate(siteUrl: string): ProductUpdateInput {
+  const site = siteUrl.replace(/\/$/, "");
+  return {
+    siteUrl: site,
+    subject: "what's new in convt",
+    preheader: "desktop licenses are lifetime now, and there's a browser extension.",
+    intro: "a quick roundup of what changed since the last update.",
+    items: [
+      {
+        title: "desktop is a lifetime license now",
+        body: "buy it once and get every future desktop update. existing desktop keys count as lifetime too.",
+      },
+      {
+        title: "save web images as png, jpg or webp",
+        body: "the convt extension for chrome and edge adds convert with convt to the image right-click menu. it converts in your browser.",
+      },
+    ],
+    cta: { href: `${site}/download`, label: "get the latest version" },
+    outro: "what should i build next? reply and let me know.",
+  };
+}
+
+export type MarketingTemplateName =
+  | "welcome-free"
+  | "welcome-paid"
+  | "lifetime"
+  | "lifetime-free"
+  | "pro-trial"
+  | "product-update";
 
 /** Every template, rendered for export and previews. */
 export function marketingTemplates(
   footer: FooterInput,
 ): Record<MarketingTemplateName, MarketingRendered> {
   return {
-    welcome: renderMarketing(welcomeEmail(footer.siteUrl), footer),
-    "lifetime-desktop": renderMarketing(lifetimeDesktopEmail(footer.siteUrl), footer),
+    "welcome-free": renderMarketing(welcomeFreeEmail(footer.siteUrl), footer),
+    "welcome-paid": renderMarketing(welcomePaidEmail(footer.siteUrl), footer),
+    lifetime: renderMarketing(lifetimeEmail(footer.siteUrl), footer),
+    "lifetime-free": renderMarketing(lifetimeFreeEmail(footer.siteUrl), footer),
     "pro-trial": renderMarketing(proTrialEmail(footer.siteUrl), footer),
-    "product-update": renderMarketing(sampleProductUpdate(footer.siteUrl), footer),
+    "product-update": renderProductUpdate(sampleProductUpdate(footer.siteUrl)),
   };
 }
