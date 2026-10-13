@@ -114,8 +114,36 @@ jobs:
           python-version: "3.12"
       - name: Source archive and audit unit tests
         run: python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+
+  windows-packaging:
+    # The installer lifecycle, modern menu and MSI authoring tests skip unless
+    # os.name == "nt", so they must run on Windows to run at all.
+    name: Windows packaging
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify dispatched commit
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned WiX
+        shell: pwsh
+        run: |
+          # Same pin as packaging/windows/installer.ps1.
+          $tools = Join-Path $env:RUNNER_TEMP 'wix'
+          dotnet tool install --tool-path $tools wix --version 6.0.2 --add-source https://api.nuget.org/v3/index.json
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+          $dll = Get-ChildItem -LiteralPath (Join-Path $tools '.store') -Recurse -Filter wix.dll |
+            Where-Object { $_.Name -ceq 'wix.dll' } | Select-Object -First 1
+          if (-not $dll) { throw 'wix.dll not found in the WiX tool store' }
+          "CONVT_TEST_WIX_DLL=$($dll.FullName)" >> $env:GITHUB_ENV
       - name: Windows packaging unit tests
-        run: python3 -m unittest discover -s packaging/windows -p 'test_*.py' -v
+        run: python -m unittest discover -s packaging/windows -p 'test_*.py' -v
 
   web:
     name: Web
