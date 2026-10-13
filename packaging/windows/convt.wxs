@@ -1,9 +1,57 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?include installer-ui.wxi?>
   <Package Name="convt" Manufacturer="Convt" Version="$(var.Version)" UpgradeCode="BAE8028B-1352-4B85-B1C7-A10B7EA54D08" Scope="perUser">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of convt is already installed." />
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer version of convt is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
-    <Icon Id="convt.ico" SourceFile="$(sys.SOURCEFILEDIR)convt.ico" />
+    <Icon Id="convt.ico" SourceFile="$(sys.SOURCEFILEDIR)convt-v2.ico" />
     <Property Id="ARPPRODUCTICON" Value="convt.ico" />
+    <UIRef Id="ConvtInstallerUI" />
+    <Property Id="CONVT_CONTEXT_MENU" Value="1" Secure="yes">
+      <RegistrySearch Id="ConvtSavedContextMenu" Root="HKCU" Key="Software\Convt\InstallerOptions" Name="ContextMenu" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="CONVT_DESKTOP_SHORTCUT" Secure="yes">
+      <RegistrySearch Id="ConvtSavedDesktopShortcut" Root="HKCU" Key="Software\Convt\InstallerOptions" Name="DesktopShortcut" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="CONVT_PREVIOUS_INSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="ConvtPreviousInstallFolder" Root="HKCU" Key="Software\Convt" Name="InstallFolder" Type="raw" Bitness="always64" />
+    </Property>
+    <SetProperty Id="INSTALLFOLDER" Value="[CONVT_PREVIOUS_INSTALLFOLDER]" After="AppSearch"
+      Condition="NOT INSTALLFOLDER AND CONVT_PREVIOUS_INSTALLFOLDER" />
+    <!-- MSI checkboxes use null for unchecked. Preserve the stored 0 during
+         execution/repair, then normalize only the successful final page. -->
+    <SetProperty Id="CONVT_CONTEXT_MENU" Value="" After="ExecuteAction" Sequence="ui" Condition="CONVT_CONTEXT_MENU = &quot;0&quot;" />
+    <SetProperty Id="CONVT_DESKTOP_SHORTCUT" Value="" After="ExecuteAction" Sequence="ui" Condition="CONVT_DESKTOP_SHORTCUT = &quot;0&quot;" />
+    <!-- Embedded helpers remain available before an upgrade removes the old
+         payload and after rollback/uninstall has removed the new payload. -->
+    <Binary Id="ConvtInstallerActions" SourceFile="$(var.InstallerActionsDll)" />
+    <CustomAction Id="ConvtFinishPrepare" BinaryRef="ConvtInstallerActions" DllEntry="Prepare" Return="check" />
+    <CustomAction Id="ConvtFinishRollback" BinaryRef="ConvtInstallerActions" DllEntry="Rollback" Execute="rollback" Impersonate="yes" Return="check" />
+    <CustomAction Id="ConvtFinishApply" BinaryRef="ConvtInstallerActions" DllEntry="Apply" Execute="deferred" Impersonate="yes" Return="check" />
+    <!-- Commit only discards recovery files. Log cleanup errors without starting
+         a rollback after those files may already have been discarded. -->
+    <CustomAction Id="ConvtFinishCommit" BinaryRef="ConvtInstallerActions" DllEntry="Commit" Execute="commit" Impersonate="yes" Return="ignore" />
+    <CustomAction Id="ConvtFinishRemoveRollback" BinaryRef="ConvtInstallerActions" DllEntry="Rollback" Execute="rollback" Impersonate="yes" Return="check" />
+    <CustomAction Id="ConvtFinishRemove" BinaryRef="ConvtInstallerActions" DllEntry="Remove" Execute="deferred" Impersonate="yes" Return="check" />
+    <CustomAction Id="ConvtFinishRemoveCommit" BinaryRef="ConvtInstallerActions" DllEntry="Commit" Execute="commit" Impersonate="yes" Return="ignore" />
+    <CustomAction Id="ConvtFinishConfigure" BinaryRef="ConvtInstallerActions" DllEntry="Configure" Return="check" />
+    <CustomAction Id="ConvtLaunchApp" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]convt-app.exe&quot;" Return="asyncNoWait" />
+    <SetProperty Id="ConvtFinishRollback" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishRollback" Sequence="execute" />
+    <SetProperty Id="ConvtFinishApply" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishApply" Sequence="execute" />
+    <SetProperty Id="ConvtFinishCommit" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishCommit" Sequence="execute" />
+    <SetProperty Id="ConvtFinishRemoveRollback" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishRemoveRollback" Sequence="execute" />
+    <SetProperty Id="ConvtFinishRemove" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishRemove" Sequence="execute" />
+    <SetProperty Id="ConvtFinishRemoveCommit" Value="[ProductCode]|[INSTALLFOLDER]|[CONVT_PREVIOUS_INSTALLFOLDER]|[CONVT_CONTEXT_MENU]|[CONVT_DESKTOP_SHORTCUT]" Before="ConvtFinishRemoveCommit" Sequence="execute" />
+    <InstallExecuteSequence>
+      <Custom Action="ConvtFinishPrepare" Before="RemoveExistingProducts" Condition="NOT UPGRADINGPRODUCTCODE" />
+      <!-- Early RemoveExistingProducts must precede every in-script action,
+           including rollback CAs. Prepare only snapshots current-user files. -->
+      <Custom Action="ConvtFinishRollback" After="RemoveExistingProducts" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+      <Custom Action="ConvtFinishApply" After="WriteRegistryValues" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+      <Custom Action="ConvtFinishCommit" After="ConvtFinishApply" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+      <Custom Action="ConvtFinishRemoveRollback" Before="ConvtFinishRemove" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="ConvtFinishRemove" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="ConvtFinishRemoveCommit" After="ConvtFinishRemove" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
       <Directory Id="INSTALLFOLDER" Name="convt">
@@ -13,6 +61,9 @@
     <Feature Id="Main" Title="convt" Level="1">
       <ComponentGroupRef Id="Payload" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="UrlProtocol" />
+      <ComponentRef Id="ExplorerMenu" />
+      <ComponentRef Id="ExplorerVerb" />
     </Feature>
   </Package>
   <Fragment>
@@ -27,8 +78,42 @@
     </StandardDirectory>
   </Fragment>
   <Fragment>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="UrlProtocol" Guid="*">
+        <RegistryKey Root="HKCU" Key="Software\Classes\convt">
+          <RegistryValue Type="string" Value="URL:convt Protocol" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" KeyPath="yes" />
+          <RegistryKey Key="shell\open\command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]convt-app.exe&quot; &quot;%1&quot;" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+  <Fragment>
     <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
       <Files Include="$(var.Payload)\**" />
     </ComponentGroup>
+  </Fragment>
+  <Fragment>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ExplorerMenu" Guid="*" Bitness="always64">
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{710FB9A8-C47E-4B39-9CFA-E273AB1B78F8}">
+          <RegistryValue Type="string" Value="convt Explorer command" />
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="[INSTALLFOLDER]convt_shell.dll" KeyPath="yes" />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Apartment" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+      <Component Id="ExplorerVerb" Guid="*" Bitness="always64" Transitive="yes" Condition="CONVT_CONTEXT_MENU &lt;&gt; &quot;0&quot;">
+        <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\convt">
+          <RegistryValue Name="MUIVerb" Type="string" Value="Convert with convt" KeyPath="yes" />
+          <RegistryValue Name="ExplorerCommandHandler" Type="string" Value="{710FB9A8-C47E-4B39-9CFA-E273AB1B78F8}" />
+          <RegistryValue Name="MultiSelectModel" Type="string" Value="Player" />
+          <RegistryValue Name="Icon" Type="string" Value="&quot;[INSTALLFOLDER]convt-app.exe&quot;,0" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
   </Fragment>
 </Wix>

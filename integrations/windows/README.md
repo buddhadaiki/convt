@@ -23,13 +23,19 @@ and [the Windows packaging guide](../../packaging/windows/README.md).
 
 The MSI pairs registration and removal with transaction-specific Appx rollback.
 Journals live under `%LOCALAPPDATA%\Convt\installer-transactions`, outside the
-removable payload. Uninstall preserves settings/history. An identity associated
-with another installation path or version is rejected before modification;
-automatic upgrades between different Appx identity versions are not supported
-by this local verification delivery. Remove the previous identity with its
-installed helper before installing a newer identity version. Public delivery
+removable payload. Uninstall preserves settings/history. Upgrade snapshots the
+identity at the previous MSI installation path, validates its publisher, version
+and external root, and transfers it after installing the new payload. A guarded
+backup of package entrypoints, manifest and logos supports compensation before
+MSI restores the rest of the old runtime. Unrelated identities and divergent
+files are rejected before modification. Public delivery
 still needs a signed identity package; this MSI's loose registration is for a
 machine with Developer Mode already enabled.
+
+The successful finish page defaults to enabling the context menu and leaving
+the desktop shortcut unchecked. **Abrir convt** and **Concluir** apply those
+choices before opening the app or closing the installer. Saved installer choices
+are reused on maintenance; they do not rewrite the app's menu format preferences.
 
 ## Choose the formats
 

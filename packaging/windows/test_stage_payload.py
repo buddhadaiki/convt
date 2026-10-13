@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_payload import DLL_FAMILIES, REQUIRED, stage, validate
+from stage_payload import DLL_FAMILIES, IDENTITY_FILES, REQUIRED, stage, validate
 
 
 def write(path: Path, size: int = 8) -> None:
@@ -28,6 +28,29 @@ def runtime_payload(root: Path) -> None:
 
 
 class StagePayloadTest(unittest.TestCase):
+    def test_complete_modern_identity_is_staged(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "payload"
+            dest = Path(raw) / "msi"
+            runtime_payload(source)
+            for name in IDENTITY_FILES:
+                write(source / name)
+            self.assertEqual(validate(source), [])
+            staged = {path.as_posix() for path, _ in stage(source, dest)}
+            self.assertTrue(IDENTITY_FILES <= staged)
+
+    def test_partial_identity_and_unknown_assets_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "payload"
+            runtime_payload(source)
+            write(source / "identity" / "AppxManifest.xml")
+            write(source / "Assets" / "unrelated.png")
+            write(source / "identity" / "extra-script.ps1")
+            errors = "\n".join(validate(source))
+            self.assertIn("missing identity runtime file", errors)
+            self.assertIn("unrelated.png", errors)
+            self.assertIn("extra-script.ps1", errors)
+
     def test_runtime_payload_is_copied_largest_first(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             source = Path(raw) / "payload"
@@ -105,6 +128,14 @@ class StagePayloadTest(unittest.TestCase):
             errors = "\n".join(validate(source))
             self.assertIn("libheif", errors)
             self.assertTrue(any(name in errors for name in DLL_FAMILIES["libheif"]))
+
+    def test_missing_explorer_handler_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "payload"
+            runtime_payload(source)
+            (source / "convt_shell.dll").unlink()
+            self.assertIn("missing required runtime file: convt_shell.dll",
+                          validate(source))
 
 
 if __name__ == "__main__":

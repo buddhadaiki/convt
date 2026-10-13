@@ -1,0 +1,69 @@
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <UI Id="ConvtInstallerUI">
+      <TextStyle Id="ConvtFont" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="ConvtTitle" FaceName="Segoe UI" Size="16" Bold="yes" Red="27" Green="111" Blue="81" />
+      <Property Id="DefaultUIFont" Value="ConvtFont" />
+      <Property Id="ErrorDialog" Value="ConvtError" />
+      <!-- An absent desktop property is an unchecked checkbox. -->
+      <Dialog Id="ConvtProgress" Width="370" Height="240" Title="convt" Modeless="yes">
+        <Control Id="Title" Type="Text" X="24" Y="22" Width="322" Height="28" Transparent="yes" Text="{\ConvtTitle}Preparando convt" />
+        <Control Id="Description" Type="Text" X="24" Y="63" Width="322" Height="28" Text="Aguarde enquanto o instalador atualiza os arquivos do aplicativo." />
+        <Control Id="Action" Type="Text" X="24" Y="105" Width="322" Height="20">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="Progress" Type="ProgressBar" X="24" Y="138" Width="322" Height="14" ProgressBlocks="yes">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="264" Y="199" Width="82" Height="23" Cancel="yes" Text="Cancelar">
+          <Publish Event="EndDialog" Value="Exit" Condition="1" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ConvtFinish" Width="370" Height="264" Title="convt">
+        <Control Id="Title" Type="Text" X="24" Y="22" Width="322" Height="28" Transparent="yes" Text="{\ConvtTitle}Tudo pronto" />
+        <Control Id="Description" Type="Text" X="24" Y="65" Width="322" Height="34" Text="O convt foi instalado. Escolha como deseja acessá-lo e clique em Concluir." />
+        <Control Id="ContextMenu" Type="CheckBox" X="24" Y="118" Width="322" Height="20" Property="CONVT_CONTEXT_MENU" CheckBoxValue="1" Text="Adicionar ao menu de contexto" />
+        <Control Id="DesktopShortcut" Type="CheckBox" X="24" Y="153" Width="322" Height="20" Property="CONVT_DESKTOP_SHORTCUT" CheckBoxValue="1" Text="Adicionar à Área de Trabalho" />
+        <Control Id="Line" Type="Line" X="0" Y="211" Width="370" Height="1" />
+        <Control Id="Open" Type="PushButton" X="24" Y="229" Width="106" Height="23" Text="Abrir convt">
+          <Publish Event="DoAction" Value="ConvtFinishConfigure" Order="1" Condition="1" />
+          <Publish Event="DoAction" Value="ConvtLaunchApp" Order="2" Condition="CONVT_FINISH_APPLIED = &quot;1&quot;" />
+        </Control>
+        <Control Id="Finish" Type="PushButton" X="240" Y="229" Width="106" Height="23" Default="yes" Cancel="yes" Text="Concluir">
+          <Publish Event="DoAction" Value="ConvtFinishConfigure" Order="1" Condition="1" />
+          <Publish Event="EndDialog" Value="Return" Order="2" Condition="CONVT_FINISH_APPLIED = &quot;1&quot;" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ConvtFailed" Width="370" Height="200" Title="convt">
+        <Control Id="Title" Type="Text" X="24" Y="22" Width="322" Height="28" Text="{\ConvtTitle}A instalação não terminou" />
+        <Control Id="Description" Type="Text" X="24" Y="70" Width="322" Height="60" Text="As alterações em andamento foram revertidas. Consulte a mensagem de erro e o log do Windows Installer antes de tentar novamente." />
+        <Control Id="Close" Type="PushButton" X="240" Y="154" Width="106" Height="23" Default="yes" Cancel="yes" Text="Fechar">
+          <Publish Event="EndDialog" Value="Return" Condition="1" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ConvtCancelled" Width="370" Height="200" Title="convt">
+        <Control Id="Title" Type="Text" X="24" Y="22" Width="322" Height="28" Text="{\ConvtTitle}Instalação cancelada" />
+        <Control Id="Description" Type="Text" X="24" Y="70" Width="322" Height="60" Text="As alterações em andamento foram revertidas. Você pode executar o instalador novamente quando desejar." />
+        <Control Id="Close" Type="PushButton" X="240" Y="154" Width="106" Height="23" Default="yes" Cancel="yes" Text="Fechar">
+          <Publish Event="EndDialog" Value="Return" Condition="1" />
+        </Control>
+      </Dialog>
+      <Dialog Id="ConvtError" Width="370" Height="180" Title="convt" ErrorDialog="yes">
+        <Control Id="ErrorText" Type="Text" X="24" Y="22" Width="322" Height="90" Text="[ErrorText]" />
+        <Control Id="Y" Type="PushButton" X="24" Y="137" Width="72" Height="23" Text="Sim"><Publish Event="EndDialog" Value="ErrorYes" Condition="1" /></Control>
+        <Control Id="N" Type="PushButton" X="105" Y="137" Width="72" Height="23" Text="Não"><Publish Event="EndDialog" Value="ErrorNo" Condition="1" /></Control>
+        <Control Id="A" Type="PushButton" X="186" Y="137" Width="72" Height="23" Text="Interromper"><Publish Event="EndDialog" Value="ErrorAbort" Condition="1" /></Control>
+        <Control Id="C" Type="PushButton" X="267" Y="137" Width="79" Height="23" Cancel="yes" Text="Cancelar"><Publish Event="EndDialog" Value="ErrorCancel" Condition="1" /></Control>
+        <Control Id="I" Type="PushButton" X="24" Y="137" Width="72" Height="23" Text="Ignorar"><Publish Event="EndDialog" Value="ErrorIgnore" Condition="1" /></Control>
+        <Control Id="O" Type="PushButton" X="105" Y="137" Width="72" Height="23" Default="yes" Text="OK"><Publish Event="EndDialog" Value="ErrorOk" Condition="1" /></Control>
+        <Control Id="R" Type="PushButton" X="186" Y="137" Width="72" Height="23" Text="Repetir"><Publish Event="EndDialog" Value="ErrorRetry" Condition="1" /></Control>
+      </Dialog>
+      <InstallUISequence>
+        <Show Dialog="ConvtProgress" Before="ExecuteAction" Condition="1" />
+        <Show Dialog="ConvtFinish" OnExit="success" Condition="NOT (REMOVE~=&quot;ALL&quot;)" />
+        <Show Dialog="ConvtFailed" OnExit="error" Condition="1" />
+        <Show Dialog="ConvtCancelled" OnExit="cancel" Condition="1" />
+      </InstallUISequence>
+    </UI>
+  </Fragment>
+</Include>

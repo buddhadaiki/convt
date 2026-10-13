@@ -17,6 +17,7 @@ from pathlib import Path
 REQUIRED = (
     "convt.exe",
     "convt-app.exe",
+    "convt_shell.dll",
     "ffmpeg.exe",
     "ffprobe.exe",
     "pdfium.dll",
@@ -37,6 +38,10 @@ FORBIDDEN_SUFFIXES = frozenset(
 FORBIDDEN_DIRS = frozenset({"native-source", "build-convt"})
 ROOT_SUFFIXES = frozenset({".exe", ".dll"})
 ROOT_NAMES = frozenset({"license.txt", "build-receipt.json"})
+IDENTITY_FILES = frozenset({
+    "identity/Assets/Square44x44Logo.png", "identity/Assets/Square150x150Logo.png", "identity/Assets/StoreLogo.png",
+    "identity/AppxManifest.xml", "identity/modern-menu.ps1",
+})
 # Notices live under licenses/. PDFium ships third-party texts with
 # unusual suffixes such as .ijg; keep any file that is not a forbidden
 # source or build artifact.
@@ -69,7 +74,7 @@ def keep(path: Path, root: Path) -> bool:
         return False
     if len(relative.parts) == 1:
         return path.suffix.lower() in ROOT_SUFFIXES or path.name.lower() in ROOT_NAMES
-    return relative.parts[0] == "licenses"
+    return relative.parts[0] == "licenses" or relative.as_posix() in IDENTITY_FILES
 
 
 def payload_files(root: Path) -> list[Path]:
@@ -88,6 +93,10 @@ def validate(root: Path) -> list[str]:
     for required in REQUIRED:
         if required not in names:
             errors.append(f"missing required runtime file: {required}")
+    present = {rel(path, root).as_posix() for path in files}
+    if present & IDENTITY_FILES:
+        for missing in sorted(IDENTITY_FILES - present):
+            errors.append(f"missing identity runtime file: {missing}")
     root_dlls = {path.name for path in files if path.parent == root and path.suffix.lower() == ".dll"}
     for family, options in DLL_FAMILIES.items():
         if not family_present(root_dlls, options):

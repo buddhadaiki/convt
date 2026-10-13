@@ -1,0 +1,4 @@
+#include <windows.h>
+
+101 RCDATA "modern-menu.ps1"
+102 RCDATA "finish-options.ps1"
