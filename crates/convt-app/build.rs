@@ -30,7 +30,7 @@ fn main() {
     let repo = crate_dir.parent().unwrap().parent().unwrap();
     let template = crate_dir.join("resources/convt-app.rc");
     let manifest = crate_dir.join("resources/convt-app.manifest");
-    let icon = repo.join("packaging/windows/convt-v2.ico");
+    let icon = repo.join("packaging/windows/convt.ico");
     for path in [&template, &manifest, &icon] {
         println!("cargo:rerun-if-changed={}", path.display());
         assert!(

@@ -7,6 +7,7 @@ The mark is two overlapping rounded squares: the file you have (ink) and the fil
 | `mark-on-dark.svg`, `mark-on-light.svg`     | The mark alone, for dark and light backgrounds.                                  |
 | `lockup-on-dark.png`, `lockup-on-light.png` | Mark plus the "convt" wordmark, 2400 px wide on a transparent background.        |
 | `../../packaging/linux/convt.svg`           | The app icon (the mark on a dark tile). Linux and macOS packaging build from it. |
+| `../../packaging/windows/convt-icon.svg`    | The same icon with a full-canvas tile, for Windows' `convt.ico` and logos.       |
 | `../../apps/web/public/favicon.svg`         | The favicon. It switches colors for light and dark browser tabs.                 |
 
 The wordmark is "convt" in lowercase Geist SemiBold with -0.02em tracking. Beside it, the mark is about 1.2 times the text's font size, with a gap of half the font size.

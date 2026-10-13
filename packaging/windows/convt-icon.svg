@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 128 128">
+  <!-- Windows app icon. Same mark, tile color and edge as packaging/linux/convt.svg, but the
+       tile fills the canvas the way Windows icons do: Apple's 824/1024 grid reads small at
+       16-32 px. Declared as 48 px at 96 DPI, so brand_assets.py renders N px with dpi 2N.
+       No drop shadow: it only blurs the small frames. -->
+  <defs>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".04"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#46d08b"/>
+      <stop offset="1" stop-color="#1fa463"/>
+    </linearGradient>
+    <clipPath id="source"><rect x="2" y="2" width="19" height="19" rx="5"/></clipPath>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26.5" fill="#131615"/>
+  <rect x="4.5" y="4.5" width="119" height="119" rx="26" fill="none" stroke="url(#edge)"/>
+  <g transform="translate(20 20) scale(2.75)">
+    <rect x="2" y="2" width="19" height="19" rx="5" fill="#edefee"/>
+    <rect x="11" y="11" width="19" height="19" rx="5" fill="url(#green)"/>
+    <rect x="11" y="11" width="19" height="19" rx="5" fill="#a6f0c8" clip-path="url(#source)"/>
+  </g>
+</svg>

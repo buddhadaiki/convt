@@ -42,9 +42,17 @@ GUID and installation root. Never use `Rollback` for a completed installation.
 See [Explorer integration](../../integrations/windows/README.md) for validation
 and the current signed-distribution boundary.
 
-The new icon master is `design-assets/brand/convt-v2/logo.png`; its prompt and
-rebuild instructions are [recorded here](../../design-assets/brand/convt-v2/README.md).
-`convt-v2.ico` contains seven sizes. Cargo embeds the icon, while
+The icon is the convt mark from [the brand](../../design-assets/brand/README.md)
+on the same dark tile as `packaging/linux/convt.svg`, with the tile filling the
+canvas as Windows icons do. `convt-icon.svg` is the source; `brand_assets.py`
+renders `convt.ico` (16 to 256 px, each size drawn from the vector) and the
+three identity logos in `Assets/` with a built CLI:
+
+```powershell
+python packaging/windows/brand_assets.py --convt target/debug/convt.exe
+```
+
+Cargo embeds the icon, while
 `prepare_app.ps1` merges the package identity into GPUI's existing PE manifest
 with the Windows SDK's `mt.exe`, preserving DPI and compatibility settings.
 This step precedes signing and is also run by `installer.ps1`. The identity
