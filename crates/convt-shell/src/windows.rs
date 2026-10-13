@@ -33,6 +33,9 @@ impl Drop for ModuleLease {
     }
 }
 const PROBE_LIMIT: Duration = Duration::from_secs(2);
+/// GetState and EnumSubCommands both need one menu construction's targets.
+/// Reuse that answer briefly; a later right-click probes the CLI again.
+const MENU_REUSE: Duration = Duration::from_secs(5);
 
 fn error() -> Error {
     Error::from_hresult(E_FAIL)
@@ -124,6 +127,36 @@ fn selection_menu_with(
 
 fn selection_menu(paths: &[PathBuf]) -> MenuSelection {
     selection_menu_with(paths, probe)
+}
+
+struct ProbedMenu {
+    paths: Vec<PathBuf>,
+    menu: MenuSelection,
+    at: Instant,
+}
+
+/// One answer per menu construction: the same selection within [`MENU_REUSE`]
+/// reuses it, so a right-click starts the CLI once per extension, not twice.
+fn reuse_or_probe(
+    cache: &Mutex<Option<ProbedMenu>>,
+    paths: &[PathBuf],
+    now: Instant,
+    probe: impl FnOnce(&[PathBuf]) -> MenuSelection,
+) -> Result<MenuSelection> {
+    let mut cache = cache.lock().map_err(|_| error())?;
+    if let Some(probed) = cache.as_ref()
+        && probed.paths == paths
+        && now.saturating_duration_since(probed.at) < MENU_REUSE
+    {
+        return Ok(probed.menu.clone());
+    }
+    let menu = probe(paths);
+    *cache = Some(ProbedMenu {
+        paths: paths.to_vec(),
+        menu: menu.clone(),
+        at: now,
+    });
+    Ok(menu)
 }
 
 fn parse_probe(bytes: &[u8]) -> Option<MenuSelection> {
@@ -325,6 +358,7 @@ struct ExplorerCommand {
     mode: CommandMode,
     site: Mutex<Option<IUnknown>>,
     selection: Mutex<Vec<PathBuf>>,
+    menu: Mutex<Option<ProbedMenu>>,
 }
 impl ExplorerCommand {
     fn root() -> Self {
@@ -333,6 +367,7 @@ impl ExplorerCommand {
             mode: CommandMode::Root,
             site: Mutex::new(None),
             selection: Mutex::new(vec![]),
+            menu: Mutex::new(None),
         }
     }
 }
@@ -353,6 +388,9 @@ impl IObjectWithSite_Impl for ExplorerCommand_Impl {
     }
 }
 impl ExplorerCommand_Impl {
+    fn menu_for(&self, paths: &[PathBuf]) -> Result<MenuSelection> {
+        reuse_or_probe(&self.menu, paths, Instant::now(), selection_menu)
+    }
     fn selected_paths(&self) -> Result<Vec<PathBuf>> {
         let paths = self.selection.lock().map_err(|_| error())?.clone();
         if !paths.is_empty() {
@@ -413,7 +451,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
         let Ok(paths) = files(items) else {
             return Ok(ECS_HIDDEN.0 as u32);
         };
-        let menu = selection_menu(&paths);
+        let menu = self.menu_for(&paths)?;
         *self.selection.lock().map_err(|_| error())? = paths;
         let state = if menu.more { ECS_ENABLED } else { ECS_HIDDEN };
         Ok(state.0 as u32)
@@ -450,7 +488,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
             return Err(Error::from_hresult(E_NOTIMPL));
         }
         let paths = self.selected_paths()?;
-        let commands = command_modes(selection_menu(&paths))
+        let commands = command_modes(self.menu_for(&paths)?)
             .into_iter()
             .map(|mode| {
                 ExplorerCommand {
@@ -458,6 +496,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
                     mode,
                     site: Mutex::new(None),
                     selection: Mutex::new(paths.clone()),
+                    menu: Mutex::new(None),
                 }
                 .into()
             })
@@ -663,6 +702,34 @@ mod tests {
         assert_eq!(changed, menu(&["webp"]));
         assert_eq!(command_modes(custom_empty), [CommandMode::More]);
         assert_eq!(disabled, MenuSelection::default());
+    }
+
+    #[test]
+    fn one_menu_construction_probes_once_and_later_ones_probe_again() {
+        let cache = Mutex::new(None);
+        let png = [PathBuf::from("one.png")];
+        let mp4 = [PathBuf::from("two.mp4")];
+        let start = Instant::now();
+        let calls = std::cell::Cell::new(0);
+        let probe = |_: &[PathBuf]| {
+            calls.set(calls.get() + 1);
+            menu(&["jpeg"])
+        };
+        // GetState, then EnumSubCommands for the same selection.
+        assert_eq!(
+            reuse_or_probe(&cache, &png, start, probe).unwrap(),
+            menu(&["jpeg"])
+        );
+        assert_eq!(
+            reuse_or_probe(&cache, &png, start + Duration::from_millis(300), probe).unwrap(),
+            menu(&["jpeg"])
+        );
+        assert_eq!(calls.get(), 1);
+        // A different selection, or the same one after the window, asks again.
+        reuse_or_probe(&cache, &mp4, start, probe).unwrap();
+        assert_eq!(calls.get(), 2);
+        reuse_or_probe(&cache, &mp4, start + MENU_REUSE, probe).unwrap();
+        assert_eq!(calls.get(), 3);
     }
 
     #[test]
