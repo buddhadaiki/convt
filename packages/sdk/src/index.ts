@@ -122,13 +122,35 @@ export class Convt {
       },
       ...(data ? { body: JSON.stringify(data) } : {}),
     });
-    const value = await response.json();
-    if (!response.ok)
+    // Keep network and cancellation failures outside the JSON parsing fallback.
+    const body = await response.text();
+    let value: unknown;
+    try {
+      value = JSON.parse(body);
+    } catch {
+      if (response.ok)
+        throw new ConvtError(
+          "invalid_response",
+          "API returned an invalid JSON response.",
+          response.status,
+        );
+      // HTTP errors may contain plain text or an HTML proxy page.
+    }
+    if (!response.ok) {
+      const error =
+        typeof value === "object" &&
+        value !== null &&
+        "error" in value &&
+        typeof value.error === "object" &&
+        value.error !== null
+          ? value.error
+          : {};
       throw new ConvtError(
-        value.error?.code ?? "request_failed",
-        value.error?.message ?? "Request failed.",
+        "code" in error && typeof error.code === "string" ? error.code : "request_failed",
+        "message" in error && typeof error.message === "string" ? error.message : "Request failed.",
         response.status,
       );
+    }
     return value as T;
   }
   create(
