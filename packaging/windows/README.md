@@ -125,10 +125,11 @@ $env:SOURCE_DATE_EPOCH = '1791244800'
 ./packaging/windows/installer.ps1
 ```
 
-The MSI shows native progress and then a **Tudo pronto** page. On a fresh
-installation, **Adicionar ao menu de contexto** is checked and **Adicionar à
-Área de Trabalho** is unchecked. **Abrir convt** applies the choices and opens
-the app; **Concluir** applies them and closes the installer. Failed configuration
+The MSI shows native progress and then an **O convt está pronto** page, each
+headed by the app icon. On a fresh installation, the right-click menu and
+**Abrir o convt agora** are checked and the desktop shortcut is unchecked.
+**Concluir** applies the choices, opens the app when asked, and closes the
+installer; the launch choice is UI-only and never stored. Failed configuration
 keeps the page open and reports the error. Previously saved installer choices
 are reused on repair/upgrade. They live in the user's
 `Software\Convt\InstallerOptions` registry key, separate from app settings,

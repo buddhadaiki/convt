@@ -33,8 +33,9 @@ still needs a signed identity package; this MSI's loose registration is for a
 machine with Developer Mode already enabled.
 
 The successful finish page defaults to enabling the context menu and leaving
-the desktop shortcut unchecked. **Abrir convt** and **Concluir** apply those
-choices before opening the app or closing the installer. Saved installer choices
+the desktop shortcut unchecked. **Concluir** applies those choices before it
+opens the app (**Abrir o convt agora**, checked by default) and closes the
+installer. Saved installer choices
 are reused on maintenance; they do not rewrite the app's menu format preferences.
 
 ## Choose the formats
