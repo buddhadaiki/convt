@@ -1,4 +1,4 @@
-param([string]$Cache, [string]$Work, [string]$Out, $Lock)
+param([string]$Cache, [string]$Work, [string]$Out, $Lock, [string]$WindowsSdkInclude)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Repo = (Resolve-Path "$PSScriptRoot/../..").Path
@@ -21,6 +21,55 @@ $Generator = switch ($Major) {
 $CMake = Get-Command cmake.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 if (-not $CMake) { $CMake = Join-Path $VisualStudio.installationPath 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe' }
 if (!(Test-Path $CMake)) { throw 'CMake required (Visual Studio C++ CMake tools or PATH)' }
+$PlatformArgs = @('-A', 'x64')
+$SdkArgs = @()
+if ($WindowsSdkInclude) {
+    # MSBuild validates the system SDK before compiling and replaces INCLUDE.
+    # An explicit header override therefore uses the installed Ninja with an
+    # x64 vcvars environment; system SDK libraries remain in LIB/LIBPATH.
+    $SdkRoot = (Resolve-Path -LiteralPath $WindowsSdkInclude -ErrorAction Stop).Path
+    if ($SdkRoot -match '[;"\r\n]') { throw 'WindowsSdkInclude contains unsupported flag characters' }
+    $SdkDirs = @('shared', 'um', 'ucrt', 'winrt', 'cppwinrt') | ForEach-Object {
+        $Dir = Join-Path $SdkRoot $_
+        if (-not (Test-Path -LiteralPath $Dir -PathType Container)) {
+            throw "Windows SDK include directory missing: $Dir"
+        }
+        $Dir
+    }
+    foreach ($Header in @('shared/winapifamily.h', 'shared/sdkddkver.h', 'um/windows.h', 'ucrt/stdlib.h')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SdkRoot $Header) -PathType Leaf)) {
+            throw "Windows SDK header missing: $Header"
+        }
+    }
+    $Ninja = Join-Path $VisualStudio.installationPath 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
+    if (-not (Test-Path -LiteralPath $Ninja -PathType Leaf)) { throw 'Visual Studio Ninja required for WindowsSdkInclude' }
+    $VcVars = Join-Path $VisualStudio.installationPath 'VC/Auxiliary/Build/vcvars64.bat'
+    if (-not (Test-Path -LiteralPath $VcVars -PathType Leaf)) { throw 'Visual Studio vcvars64.bat required' }
+    $VcEnvironment = & $env:ComSpec /d /s /c ('"{0}" >nul && set' -f $VcVars)
+    if ($LASTEXITCODE -ne 0) { throw 'vcvars64.bat failed' }
+    foreach ($Entry in $VcEnvironment) {
+        if ($Entry -match '^(PATH|INCLUDE|LIB|LIBPATH)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+        }
+    }
+    $Compiler = (Get-Command cl.exe -ErrorAction Stop).Source
+    if ($Compiler -notmatch '[\\/]Hostx64[\\/]x64[\\/]cl\.exe$') { throw "Expected x64 MSVC compiler: $Compiler" }
+    $Linker = Join-Path (Split-Path -Parent $Compiler) 'link.exe'
+    if (-not (Test-Path -LiteralPath $Linker -PathType Leaf)) { throw 'MSVC x64 linker missing' }
+    $env:INCLUDE = ($SdkDirs -join ';') + ';' + $env:INCLUDE
+    $IncludeFlags = ($SdkDirs | ForEach-Object { '/I"{0}"' -f $_ }) -join ' '
+    $Generator = 'Ninja'
+    $PlatformArgs = @()
+    $SdkArgs = @(
+        "-DCMAKE_MAKE_PROGRAM=$Ninja"
+        '-DCMAKE_BUILD_TYPE=Release'
+        "-DCMAKE_C_COMPILER=$Compiler"
+        "-DCMAKE_CXX_COMPILER=$Compiler"
+        "-DCMAKE_LINKER=$Linker"
+        "-DCMAKE_C_FLAGS_INIT=$IncludeFlags"
+        "-DCMAKE_CXX_FLAGS_INIT=$IncludeFlags"
+    )
+}
 # Prefer Git for Windows' GNU patch. windows-latest puts Strawberry Perl
 # first on PATH; its patch 2.5.9 asserts `hunk` on the x265 debian series
 # (0001-Fix-arm-flags.patch). That ARM CMake tweak is unused on this x64
@@ -61,6 +110,10 @@ function Native($Name, $Subdir, $Options) {
         & $Patch -d $Source -p1 --batch -i "$Repo/packaging/linux/libheif-explicit-init.patch"
         if ($LASTEXITCODE -ne 0) { throw 'Secure libheif patch failed' }
     }
+    if ($Name -eq 'libde265') {
+        & $Patch -d $Source -p1 --batch -i "$Repo/packaging/windows/libde265-msvc-scan-init.patch"
+        if ($LASTEXITCODE -ne 0) { throw 'MSVC libde265 scan initialization patch failed' }
+    }
     if ($Name -eq 'x265') {
         # x265 3.5 forces CMP0025/CMP0054 to OLD, which CMake 4 (VS 2026) rejects.
         $CMakeLists = Join-Path $Source 'source/CMakeLists.txt'
@@ -78,12 +131,11 @@ function Native($Name, $Subdir, $Options) {
         '-S', (Join-Path $Source $Subdir)
         '-B', $Build
         '-G', $Generator
-        '-A', 'x64'
         "-DCMAKE_INSTALL_PREFIX=$Prefix"
         "-DCMAKE_PREFIX_PATH=$Prefix"
         '-DCMAKE_INSTALL_LIBDIR=lib'
         '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
-    ) + @($Options)
+    ) + $PlatformArgs + $SdkArgs + @($Options)
     & $CMake @CMakeArgs
     if ($LASTEXITCODE -ne 0) { throw "Configure $Name" }
     & $CMake --build $Build --config Release --parallel 4
@@ -93,6 +145,20 @@ function Native($Name, $Subdir, $Options) {
 }
 Native 'x265' 'source' @('-DENABLE_SHARED=ON','-DENABLE_CLI=OFF','-DENABLE_ASSEMBLY=OFF','-DENABLE_LIBNUMA=OFF')
 Native 'libde265' '.' @('-DBUILD_SHARED_LIBS=ON','-DENABLE_DEC265=OFF','-DENABLE_SDL=OFF')
+# Check the scan tables, not just DLL loading: the affected optimizer can
+# return successfully with incomplete tables when caller shadow space is zero.
+$ScanBuild = Join-Path $Work 'scan-check'
+$ScanArgs = @('-S', "$PSScriptRoot/native-scan-test", '-B', $ScanBuild, '-G', $Generator) + $PlatformArgs + $SdkArgs + @(
+    "-DCONVT_LIBDE265_SOURCE=$Work/libde265/libde265"
+)
+& $CMake @ScanArgs
+if ($LASTEXITCODE -ne 0) { throw 'Configure libde265 scan regression check' }
+& $CMake --build $ScanBuild --config Release --parallel 4
+if ($LASTEXITCODE -ne 0) { throw 'Build libde265 scan regression check' }
+$CTest = Join-Path (Split-Path -Parent $CMake) 'ctest.exe'
+if (-not (Test-Path -LiteralPath $CTest)) { throw 'CMake ctest required for native validation' }
+& $CTest --test-dir $ScanBuild -C Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'libde265 scan table regression check failed' }
 Native 'aom' '.' @('-DBUILD_SHARED_LIBS=ON','-DENABLE_TESTS=OFF','-DENABLE_EXAMPLES=OFF','-DENABLE_TOOLS=OFF','-DENABLE_DOCS=OFF','-DCONFIG_LIBYUV=0','-DCONFIG_WEBM_IO=0','-DENABLE_NASM=OFF','-DAOM_TARGET_CPU=generic',"-DPERL_EXECUTABLE=$env:ProgramFiles/Git/usr/bin/perl.exe")
 # libheif 1.17.6 (and this Ubuntu series) has no BUILD_DOCUMENTATION /
 # WITH_DOXYGEN option. find_package(Doxygen) adds doc_doxygen ALL, which

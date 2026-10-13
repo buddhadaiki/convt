@@ -1,0 +1,22 @@
+--- a/libde265/scan.cc
++++ b/libde265/scan.cc
+@@ -136,6 +136,12 @@
+ }
+ 
+ 
++#if defined(_MSC_VER) && _MSC_VER == 1951 && defined(_M_X64)
++// MSVC 19.51 /O2 miscompiles this initialization loop: its first y bound is
++// read from uninitialized caller shadow space, corrupting the scan tables.
++// Disable optimization only for startup; decoding routines remain optimized.
++#pragma optimize("", off)
++#endif
+ void init_scan_orders()
+ {
+   for (int log2size=1;log2size<=5;log2size++)
+@@ -154,3 +160,6 @@
+             fill_scan_pos(&scanpos[scanIdx][log2size][ y*(1<<log2size) + x ],x,y,scanIdx,log2size);
+           }
+ }
++#if defined(_MSC_VER) && _MSC_VER == 1951 && defined(_M_X64)
++#pragma optimize("", on)
++#endif

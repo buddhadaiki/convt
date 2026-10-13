@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.20)
+project(convt_scan_check LANGUAGES CXX ASM_MASM)
+
+if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "The scan regression check requires MSVC on Windows x64")
+endif()
+if(NOT EXISTS "${CONVT_LIBDE265_SOURCE}/scan.cc")
+  message(FATAL_ERROR "CONVT_LIBDE265_SOURCE must point to the patched libde265 directory")
+endif()
+
+add_executable(convt-scan-check main.cc seed.asm "${CONVT_LIBDE265_SOURCE}/scan.cc")
+target_include_directories(convt-scan-check PRIVATE "${CONVT_LIBDE265_SOURCE}")
+target_compile_features(convt-scan-check PRIVATE cxx_std_17)
+target_compile_options(convt-scan-check PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/O2;/Ob2>")
+set_property(TARGET convt-scan-check PROPERTY MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+
+enable_testing()
+add_test(NAME scan_zero_home COMMAND convt-scan-check 0)
+add_test(NAME scan_nonzero_home COMMAND convt-scan-check 64)
+set_tests_properties(scan_zero_home scan_nonzero_home PROPERTIES TIMEOUT 30)

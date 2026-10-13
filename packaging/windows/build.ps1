@@ -1,4 +1,4 @@
-param([switch]$VerificationOnly)
+param([switch]$VerificationOnly, [string]$WindowsSdkInclude)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $ProgressPreference = 'SilentlyContinue'
@@ -42,7 +42,9 @@ if ($LASTEXITCODE -ne 0) { throw 'PDFium extraction failed' }
 Copy-Item "$Work/pdfium/bin/pdfium.dll" $Out
 Copy-Item "$Work/pdfium/LICENSE" "$Out/licenses/pdfium-LICENSE.txt"
 if (Test-Path "$Work/pdfium/licenses") { Copy-Item "$Work/pdfium/licenses" "$Out/licenses/pdfium" -Recurse }
-& "$PSScriptRoot/build-native.ps1" -Cache $Cache -Work "$Work/codecs" -Out $Out -Lock $Lock
+$NativeArgs = @{ Cache = $Cache; Work = "$Work/codecs"; Out = $Out; Lock = $Lock }
+if ($WindowsSdkInclude) { $NativeArgs.WindowsSdkInclude = $WindowsSdkInclude }
+& "$PSScriptRoot/build-native.ps1" @NativeArgs
 # lessmsi needs native backslashes in its MSI path, including cabinet lookup.
 # Windows PowerShell 5.1 needs a doubled trailing slash in native arguments.
 Expand-Archive "$Cache/lessmsi.zip" "$Work/lessmsi" -Force
@@ -77,7 +79,7 @@ try {
     $env:CONVT_DOCUMENT_PACK_VERSION = 'LibreOffice 25.8.7 Windows x64'
     $env:CONVT_DOCUMENT_PACK_SIZE = $Published.size.ToString()
     $env:CONVT_DOCUMENT_PACK_INSTALLED_SIZE = ((Get-ChildItem $Office.Directory.Parent.FullName -Recurse -File | Measure-Object Length -Sum).Sum).ToString()
-    cargo build --locked --release --target x86_64-pc-windows-msvc -p convt-cli -p convt-app
+    cargo build --locked --release --target x86_64-pc-windows-msvc -p convt-cli -p convt-app -p convt-shell
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 } finally {
     if ($null -eq $CallerPackUrl) {
@@ -86,13 +88,20 @@ try {
         $env:CONVT_DOCUMENT_PACK_URL = $CallerPackUrl
     }
 }
-Copy-Item target/x86_64-pc-windows-msvc/release/convt.exe,target/x86_64-pc-windows-msvc/release/convt-app.exe $Out
+Copy-Item target/x86_64-pc-windows-msvc/release/convt.exe,target/x86_64-pc-windows-msvc/release/convt-app.exe,target/x86_64-pc-windows-msvc/release/convt_shell.dll $Out
+& "$PSScriptRoot/prepare_app.ps1" -AppExe "$Out/convt-app.exe"
+python "$PSScriptRoot/verify-native.py" $Out
+if ($LASTEXITCODE -ne 0) { throw 'Packaged native engine startup failed' }
 Copy-Item LICENSE "$Out/LICENSE.txt"
-Copy-Item "$PSScriptRoot/inputs.lock.json","$PSScriptRoot/build-native.ps1","$PSScriptRoot/build-document-pack.py","$PSScriptRoot/document-launcher.rs","$Repo/packaging/linux/libheif-explicit-init.patch" "$Out/licenses/"
+Copy-Item "$PSScriptRoot/inputs.lock.json","$PSScriptRoot/build-native.ps1","$PSScriptRoot/build-document-pack.py","$PSScriptRoot/document-launcher.rs","$PSScriptRoot/libde265-msvc-scan-init.patch","$Repo/packaging/linux/libheif-explicit-init.patch" "$Out/licenses/"
 @{
     verification_only = [bool]$VerificationOnly
     document_pack_sha256 = $Hash
     document_pack = "packaging/out/windows/$($Published.name)"
     document_pack_url = $Published.url
     source_date_epoch = $env:SOURCE_DATE_EPOCH
+    native_patches = @(@{
+        file = 'libde265-msvc-scan-init.patch'
+        sha256 = (Get-FileHash -LiteralPath "$PSScriptRoot/libde265-msvc-scan-init.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
 } | ConvertTo-Json | Set-Content "$Out/build-receipt.json" -Encoding utf8
