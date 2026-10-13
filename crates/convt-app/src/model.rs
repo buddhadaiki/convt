@@ -261,12 +261,17 @@ pub struct AppState {
     pub revealed: Vec<PathBuf>,
     /// Quit once the queue drains if no window is open.
     pub quit_when_idle: bool,
+    /// The test platform's quit is a no-op, so record the native request.
+    #[cfg(test)]
+    pub quit_requested: bool,
     /// Whether the Finder extension is on. `None` when this platform has
     /// none, or macOS has not registered it. Tests set this directly.
     pub finder_on: Option<bool>,
     _finder_watch: Option<Task<()>>,
     /// Jobs whose result should be copied when they finish.
     automation_copies: HashSet<JobId>,
+    /// Automation jobs whose published outputs must not be watched as inputs.
+    automation_jobs: HashSet<JobId>,
     watch: crate::automation::WatchState,
     _automations: Option<Task<()>>,
     _drain: Task<()>,
@@ -345,6 +350,8 @@ impl AppState {
             #[cfg(test)]
             revealed: Vec::new(),
             quit_when_idle: false,
+            #[cfg(test)]
+            quit_requested: false,
             finder_on: None,
             // Tests set `finder_on` themselves; a live poll would overwrite it.
             _finder_watch: if cfg!(all(target_os = "macos", not(test))) {
@@ -353,6 +360,7 @@ impl AppState {
                 None
             },
             automation_copies: HashSet::new(),
+            automation_jobs: HashSet::new(),
             watch: crate::automation::WatchState::default(),
             // Tests drive the watcher themselves so a live poll cannot see
             // the real Desktop or race a fixture.
@@ -759,6 +767,7 @@ impl AppState {
             let copy = rule.copies_to_clipboard();
             match self.convert(std::slice::from_ref(&path), to, &Options::default(), cx) {
                 Ok(ids) => {
+                    self.automation_jobs.extend(ids.iter().copied());
                     if copy {
                         self.automation_copies.extend(ids);
                     }
@@ -811,8 +820,17 @@ impl AppState {
         self.licensing.enforced()
     }
 
+    pub fn quit(&mut self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        {
+            self.quit_requested = true;
+        }
+        cx.quit();
+    }
+
     fn apply(&mut self, update: crate::jobs::Update, cx: &mut Context<Self>) {
         if let Some(entry) = self.queue.apply(update).cloned() {
+            let automated = self.automation_jobs.remove(&entry.id);
             // Silent jobs stay out of the batch summary and are never revealed.
             let silent = self.silent.remove(&entry.id);
             let mut ignored = Batch::default();
@@ -823,6 +841,9 @@ impl AppState {
             };
             let outcome = match &entry.status {
                 Status::Done(outputs) => {
+                    if automated {
+                        self.watch.ignore_outputs(outputs);
+                    }
                     batch.done += 1;
                     if self.automation_copies.remove(&entry.id) {
                         cx.write_to_clipboard(crate::clipboard::clipboard_item(outputs));
@@ -877,8 +898,11 @@ impl AppState {
                 actions: Vec::new(),
             });
         }
-        if self.quit_when_idle && cx.windows().is_empty() && !self.settings.menu_bar_icon {
-            cx.quit();
+        if self.quit_when_idle
+            && cx.windows().is_empty()
+            && !crate::keep_running_without_windows(self.settings.menu_bar_icon)
+        {
+            self.quit(cx);
         }
     }
 

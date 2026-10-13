@@ -1,49 +1,117 @@
 # Windows Explorer menu
 
-The per-user MSI installs **Convert with convt** in Explorer. Windows 11's compact menu uses a sparse MSIX identity and the Rust `convt-shell` COM handler. Windows 10 and **Show more options** use the same handler through classic HKCU registry verbs. No administrator privileges are needed for those registry entries.
+The per-user MSI builds and installs `convt_shell.dll` next to `convt.exe` and
+`convt-app.exe`. It registers the COM class
+`{710FB9A8-C47E-4B39-9CFA-E273AB1B78F8}` and **Convert with convt** under the
+current user's `Software\Classes` keys. The verb applies to files, not folders,
+and changes no file association or double-click default. Uninstall removes the
+MSI's authored registry values and payload; settings and history remain.
 
-The DLL asks the installed `convt.exe targets <file> --menu` for targets. It keeps the first file's order and offers only targets shared by every selected file. Unsupported selections and folders have no menu. Probes run without a console, time out after two seconds, and cache each extension for 30 seconds. Installing or removing document support therefore refreshes the menu without restarting Explorer.
+On Windows 11 build 22000 or later, the verification MSI also registers the
+external-location identity `Convt.Desktop` / `CN=Convt Local` / `ConvtApp` when
+Developer Mode is already enabled. Its manifest declares the same COM class
+in an STA surrogate and exposes it to the main context menu. Registration is
+per-user and reuses the installed binaries; no certificate, policy or Developer
+Mode setting is changed. The classic file verb is backed up and removed only
+after the modern package, its external location and an actual out-of-process
+`IExplorerCommand` activation are confirmed. The activation check runs in a
+disposable child process with a 20-second timeout. A failed check rolls back
+registration and preserves the classic verb. If those
+prerequisites are absent, **Show more options** keeps the classic command.
+See [Microsoft's packaged context-menu contract](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/integrate-packaged-app-with-file-explorer)
+and [the Windows packaging guide](../../packaging/windows/README.md).
 
-Choosing a target launches `convt-app.exe open --show-progress --to <format> -- <files...>`. The existing Activity window displays progress and the output goes next to the input. The Windows-only flag leaves Linux and Finder launches unchanged. The app and its conversion subprocesses do not open console windows.
+The MSI pairs registration and removal with transaction-specific Appx rollback.
+Journals live under `%LOCALAPPDATA%\Convt\installer-transactions`, outside the
+removable payload. Uninstall preserves settings/history. An identity associated
+with another installation path or version is rejected before modification;
+automatic upgrades between different Appx identity versions are not supported
+by this local verification delivery. Remove the previous identity with its
+installed helper before installing a newer identity version. Public delivery
+still needs a signed identity package; this MSI's loose registration is for a
+machine with Developer Mode already enabled.
 
-## Build and install
+## Choose the formats
 
-Build the pinned Windows payload first with `packaging/windows/build.ps1`. Then run:
+In the app's Settings, open **Windows menu**. Enable or disable the menu, use
+the recommended formats, or choose a custom set. Quick targets must be reachable
+from every selected input and belong to the input's family: images/vectors,
+audio, video, or documents/PDF/spreadsheets/presentations. Video also offers GIF.
+For MP4, the default list is MOV, WebM, MKV and GIF when the installed engines
+support them. Extracting MP3 is available through **Mais**.
+
+**Mais** is the last submenu item. It opens Quick convert with the selected
+files, no chosen target and no automatic conversion. That window retains all
+compatible conversions, including those outside the quick menu or its custom
+format list. An empty custom set or an empty intersection leaves **Mais** alone.
+A disabled menu, an unknown extension, a folder selection or a failed CLI probe
+hide the command. Recognized files without an available engine can still open
+the app through **Mais**, including its document-pack prompt. The next menu
+construction reads the saved preferences without a target cache.
+
+The handler asks the CLI beside its own DLL for
+`convt.exe targets <file> --menu --json`. The response contains `targets` (format
+IDs) and `more` (whether Mais is available); the text form of `--menu` still
+prints format IDs only. It never searches `PATH` or loads conversion
+engines into Explorer. Each query deduplicates files by extension, preserves
+the first file's menu order and intersects the targets across the selection.
+Probes run without a console, have a two-second deadline and bounded output.
+The selection is limited to 256 files. Choosing a target writes a request
+with the file paths, the format and `show_progress=true` to the app's
+single-instance inbox; the app shows Activity while converting. Mais uses
+`to=null`, `preset=null`, `show_progress=false` and the same inbox, so the
+existing request route opens Quick convert and waits for Convert. Paths are
+JSON data, not a shell command line.
+
+When the app is closed, the handler launches `convt-app --from-explorer`, which
+starts only the inbox listener. It does not add the empty launch request that
+would open Activity behind Quick convert. A racing second Explorer launch also
+does not enqueue an empty request. Opening convt normally still shows Activity;
+an Activity window already opened by the user is preserved.
+
+An explicit `CONVT_RUNTIME_DIR` isolates both the inbox and the app/shell mutex
+using the same UTF-16 key. Without an override, the installed namespace remains
+`Local\\convt-instance`. Use the exact same absolute override value in every
+process of a fixture, along with separate config/data directories.
+
+## Build and probe the handler
+
+In a Windows x64 checkout with Rust and the C++ build tools:
 
 ```powershell
-# Classic menu only. The sparse package is built but cannot be registered unsigned.
-.\packaging\windows\installer.ps1
-
-# Both menus, using a certificate already in CurrentUser\My with subject CN=Convt.
-.\packaging\windows\installer.ps1 -CertificateThumbprint <thumbprint>
+cargo build --target x86_64-pc-windows-msvc -p convt-cli -p convt-shell
+cargo build --target x86_64-pc-windows-msvc -p convt-shell --example explorer-probe
+.\target\x86_64-pc-windows-msvc\debug\examples\explorer-probe.exe `
+  .\target\x86_64-pc-windows-msvc\debug\convt_shell.dll C:\test\sample.png
 ```
 
-The builder needs the Windows SDK (`makeappx.exe` and `signtool.exe`) and Rust. The sparse package contains registration metadata and a logo; the executable and DLL stay in `%LOCALAPPDATA%\Programs\convt`. MSI installation registers the signed package for the current user after installing its files. Uninstallation unregisters it before deleting the payload and removes the HKCU verbs and COM registration. Rollback actions undo registration changes. MSI never restarts Explorer.
+The probe loads `DllGetClassObject`, constructs `IExplorerCommand`, enumerates
+before and after `GetState`, tests the enumerator and compares the submenu with
+the CLI beside the DLL, including Mais last and its distinct canonical GUID.
+Give it several input types to check target intersection.
+It does not register the DLL or invoke a conversion. After an authorized MSI
+installation, `--registered` tests COM activation from its existing registration.
+Use `--modern` instead to require `CLSCTX_LOCAL_SERVER`, proving the packaged
+surrogate rather than the classic in-process class. It does not invoke the app.
 
-A public release needs a trusted code-signing certificate whose subject matches the manifest's `Publisher="CN=Convt"`. Leo has no release certificate yet. A self-signed certificate is suitable only for verification. Windows package deployment requires trusting it in the machine store; run the import step from an administrator PowerShell:
+Inspect the installed identity without changing it:
 
 ```powershell
-$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=Convt' `
-  -KeyUsage DigitalSignature -CertStoreLocation Cert:\CurrentUser\My `
-  -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3','2.5.29.19={text}')
-Export-Certificate -Cert $cert -FilePath "$env:TEMP\convt-test.cer"
-Import-Certificate -FilePath "$env:TEMP\convt-test.cer" `
-  -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-.\packaging\windows\installer.ps1 -CertificateThumbprint $cert.Thumbprint
+& "$env:LOCALAPPDATA\Programs\convt\identity\modern-menu.ps1" -Action Status
 ```
 
-Do not commit certificates or private keys. Remove the test certificate from CurrentUser\My and LocalMachine\TrustedPeople after uninstalling the test build. Unsigned builds intentionally install only the classic menu.
+To prove that the same COM object observes new preferences immediately, set
+`CONVT_CONFIG_DIR` to a fresh test directory with a `settings.toml`, then pass
+`--refresh-settings <replacement.toml>` before the DLL path. The probe copies
+that replacement only to the explicitly supplied config directory and checks
+the refreshed targets and visibility. Keep test settings separate from the
+user's own configuration. Do not set `CONVT_SHELL_CAPTURE` unless an isolated
+capture fixture has replaced a copied `convt-app.exe`; that opt-in invokes a
+target. `--capture-more` invokes only Mais instead. Capture requires an explicit
+private runtime directory, a small adjacent capture stub and no running real
+app; registered/modern activation refuses capture. Never substitute the stub
+in the user's actual installation.
 
-## Verify without touching the desktop
-
-Build the public COM consumer and run it against the installed DLL and real test files:
-
-```powershell
-cargo build --release --target x86_64-pc-windows-msvc -p convt-shell --example explorer-probe
-.\target\x86_64-pc-windows-msvc\release\examples\explorer-probe.exe `
-  "$env:LOCALAPPDATA\Programs\convt\convt_shell.dll" C:\test\sample.png
-Get-AppxPackage -Name Convt.Desktop
-Get-ItemProperty 'HKCU:\Software\Classes\*\shell\convt'
-```
-
-The consumer loads `DllGetClassObject`, constructs `IExplorerCommand`, enumerates before and after `GetState`, and compares the submenu with the installed CLI. Give it multiple files to check target intersection. After uninstalling, the package and both registry keys must be absent. A real Explorer right-click remains a separate visual check; never drive a desktop while its owner is active or a game is focused.
+The probe and compiled-MSI registry table tests are separate from a real
+Explorer right-click, installation, rollback and uninstallation checks. Those
+native checks require permission to operate the user's desktop and registry.

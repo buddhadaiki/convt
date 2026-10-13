@@ -71,6 +71,10 @@ files convert in place right away and no window opens.";
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Run(Request),
+    /// Explorer has already queued the request in the instance inbox.
+    /// Starting the listener must not also request the main window.
+    #[cfg(windows)]
+    ExplorerInbox,
     Help,
     Version,
 }
@@ -83,6 +87,13 @@ pub fn parse_args(args: Vec<OsString>, cwd: &Path) -> Result<Command, String> {
         return Ok(Command::Run(Request::default()));
     };
     match first.to_str() {
+        #[cfg(windows)]
+        Some("--from-explorer") => {
+            if args.len() != 1 {
+                return Err("--from-explorer must be the only argument".into());
+            }
+            return Ok(Command::ExplorerInbox);
+        }
         Some("-h" | "--help" | "help") => return Ok(Command::Help),
         Some("-V" | "--version") => return Ok(Command::Version),
         Some(url) if url.starts_with("convt:") => {
@@ -354,6 +365,21 @@ mod tests {
         assert!(run(&["file://server/share/x.png"]).is_err());
         let help = parse_args(vec!["--help".into()], Path::new("/"));
         assert_eq!(help, Ok(Command::Help));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn explorer_startup_only_drains_the_existing_inbox() {
+        assert_eq!(
+            parse_args(vec!["--from-explorer".into()], Path::new("C:\\")),
+            Ok(Command::ExplorerInbox)
+        );
+        assert!(run(&["--from-explorer", "photo.png"]).is_err());
+        // A file with this name is still accepted after the separator.
+        assert_eq!(
+            run(&["open", "--", "--from-explorer"]).unwrap().files.len(),
+            1
+        );
     }
 
     /// What makes `/tmp` absolute here: Windows paths need a drive.

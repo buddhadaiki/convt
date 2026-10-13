@@ -50,8 +50,10 @@ fn main() -> ExitCode {
         .with_writer(std::io::stderr)
         .init();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let request = match request::parse_args(std::env::args_os().skip(1).collect(), &cwd) {
-        Ok(Command::Run(request)) => request,
+    let first = match request::parse_args(std::env::args_os().skip(1).collect(), &cwd) {
+        Ok(Command::Run(request)) => Some(request),
+        #[cfg(windows)]
+        Ok(Command::ExplorerInbox) => None,
         Ok(Command::Help) => {
             emit(std::io::stdout(), USAGE);
             return ExitCode::SUCCESS;
@@ -68,7 +70,15 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let primary = match instance::claim(&instance::runtime_dir(), &request) {
+    let dir = instance::runtime_dir();
+    let role = match first.as_ref() {
+        Some(request) => instance::claim(&dir, request),
+        #[cfg(windows)]
+        None => instance::claim_queued(&dir),
+        #[cfg(not(windows))]
+        None => unreachable!("only Explorer launches without a first request"),
+    };
+    let primary = match role {
         Ok(Role::Primary(primary)) => primary,
         Ok(Role::Forwarded) => return ExitCode::SUCCESS,
         Err(e) => {
@@ -76,7 +86,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    run(primary, request);
+    run(primary, first);
     ExitCode::SUCCESS
 }
 
@@ -90,7 +100,7 @@ fn ignore_hangup() {
     }
 }
 
-fn run(primary: instance::Primary, first: Request) {
+fn run(primary: instance::Primary, first: Option<Request>) {
     #[cfg(unix)]
     ignore_hangup();
     let (tx, mut rx) = unbounded::<Request>();
@@ -138,16 +148,25 @@ fn run(primary: instance::Primary, first: Request) {
             }
         })
         .detach();
-        #[cfg(target_os = "macos")]
-        let first = macos::launch_requests(first);
-        #[cfg(not(target_os = "macos"))]
-        let first = vec![first];
-        for req in first {
+        for req in initial_requests(first) {
             ui::route(req, cx);
         }
     });
     // In case the platform returns without running the quit observers.
     thumbs::shutdown();
+}
+
+/// Explorer launches only the inbox listener. A normal launch still routes
+/// its explicit request, including the empty request that opens Activity.
+fn initial_requests(first: Option<Request>) -> Vec<Request> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::launch_requests(first.expect("macOS launches have a first request"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        first.into_iter().collect()
+    }
 }
 
 /// Quits with the last window, unless conversions are still running; then
@@ -157,7 +176,7 @@ fn last_window_closed(cx: &mut App, _: gpui_kit::WindowId) {
         return;
     }
     let state = model::shared(cx);
-    let keep_running = cfg!(target_os = "macos") && state.read(cx).settings.menu_bar_icon;
+    let keep_running = keep_running_without_windows(state.read(cx).settings.menu_bar_icon);
     if keep_running {
         // macOS keeps the process alive when the menu bar item is enabled.
         // Calling cx.quit() from the window-closed observer starts GPUI's
@@ -166,7 +185,7 @@ fn last_window_closed(cx: &mut App, _: gpui_kit::WindowId) {
         return;
     }
     if should_quit_after_last_window(keep_running, state.read(cx).queue.active()) {
-        cx.quit();
+        state.update(cx, |s, cx| s.quit(cx));
     } else {
         state.update(cx, |s, _| s.quit_when_idle = true);
     }
@@ -174,6 +193,11 @@ fn last_window_closed(cx: &mut App, _: gpui_kit::WindowId) {
 
 fn should_quit_after_last_window(menu_bar_icon: bool, active_jobs: usize) -> bool {
     !menu_bar_icon && active_jobs == 0
+}
+
+/// Only macOS has a menu bar mode that keeps the app alive without a window.
+fn keep_running_without_windows(menu_bar_icon: bool) -> bool {
+    cfg!(target_os = "macos") && menu_bar_icon
 }
 
 #[cfg(test)]
@@ -184,6 +208,20 @@ mod tests {
         assert!(!super::should_quit_after_last_window(true, 2));
         assert!(super::should_quit_after_last_window(false, 0));
         assert!(!super::should_quit_after_last_window(false, 1));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_retains_the_app_only_while_menu_bar_mode_is_enabled() {
+        assert!(super::keep_running_without_windows(true));
+        assert!(!super::keep_running_without_windows(false));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn other_platforms_do_not_retain_the_app_for_menu_bar_mode() {
+        assert!(!super::keep_running_without_windows(true));
+        assert!(!super::keep_running_without_windows(false));
     }
 
     #[test]

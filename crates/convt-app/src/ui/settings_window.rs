@@ -1,4 +1,8 @@
-//! The Settings window: General, Presets and License.
+//! The Settings window: General, Windows menu, Presets and License.
+
+#[cfg(windows)]
+#[path = "windows_menu.rs"]
+mod windows_menu;
 
 use convt_core::{FORMATS, Format, Options, Preset, format_by_id};
 use convt_license::client::{BUY_URL, State};
@@ -17,12 +21,16 @@ use crate::settings::{Settings, auto_concurrency};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
     General,
+    #[cfg(windows)]
+    WindowsMenu,
     Presets,
     License,
 }
 
-const TABS: [(SettingsTab, &str, &str); 3] = [
+const TABS: &[(SettingsTab, &str, &str)] = &[
     (SettingsTab::General, "tab-general", "General"),
+    #[cfg(windows)]
+    (SettingsTab::WindowsMenu, "tab-windows-menu", "Windows menu"),
     (SettingsTab::Presets, "tab-presets", "Presets"),
     (SettingsTab::License, "tab-license", "License"),
 ];
@@ -53,6 +61,8 @@ pub struct SettingsView {
     pub(super) license_notice: Option<String>,
     /// Remove was clicked once under Documents; the row asks again.
     pub(super) confirm_remove_pack: bool,
+    #[cfg(windows)]
+    menu_error: Option<String>,
     _observe: Subscription,
     _appearance: Subscription,
 }
@@ -88,6 +98,8 @@ impl SettingsView {
             license_error: None,
             license_notice: None,
             confirm_remove_pack: false,
+            #[cfg(windows)]
+            menu_error: None,
         }
     }
 
@@ -895,6 +907,8 @@ impl Render for SettingsView {
             }));
         let body = match self.tab {
             SettingsTab::General => self.general(&p, cx),
+            #[cfg(windows)]
+            SettingsTab::WindowsMenu => self.windows_menu(&p, cx),
             SettingsTab::Presets => self.presets(&p, cx),
             SettingsTab::License => self.license(&p, cx),
         };

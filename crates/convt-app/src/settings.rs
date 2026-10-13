@@ -5,7 +5,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use convt_core::{Category, Format, Output, format_by_id};
+use convt_core::{Category, Format, Output, WindowsMenu, format_by_id};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +40,8 @@ pub struct Settings {
     pub defaults: Defaults,
     /// Automation rules. Each enabled rule watches one folder.
     pub automations: Vec<Automation>,
+    /// Output choices shared with the Windows Explorer menu through the CLI.
+    pub windows_menu: WindowsMenu,
 }
 
 impl Default for Settings {
@@ -57,6 +59,7 @@ impl Default for Settings {
             update_sequence: 0,
             defaults: Defaults::default(),
             automations: crate::placeholder::example_automations(),
+            windows_menu: WindowsMenu::default(),
         }
     }
 }

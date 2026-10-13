@@ -547,6 +547,118 @@ fn shown(cx: &mut TestAppContext, handle: AnyWindowHandle, name: &str) -> bool {
     label(cx, handle, name).is_some()
 }
 
+#[cfg(windows)]
+#[gpui_kit::test]
+fn windows_menu_controls_persist_selected_formats(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let (window, _) = f.settings(SettingsTab::General, cx);
+    assert!(shown(cx, window, "tab-windows-menu"));
+    click(cx, window, "tab-windows-menu");
+    click(cx, window, "menu-custom");
+    click(cx, window, "menu-clear");
+    click(cx, window, "menu-format-webp");
+    let saved: toml::Value = toml::from_str(&f.settings_file()).unwrap();
+    assert_eq!(
+        saved["windows_menu"]["targets"].as_array().unwrap(),
+        &[toml::Value::String("webp".into())]
+    );
+    click(cx, window, "menu-custom");
+    let saved: toml::Value = toml::from_str(&f.settings_file()).unwrap();
+    assert_eq!(
+        saved["windows_menu"]["targets"].as_array().unwrap(),
+        &[toml::Value::String("webp".into())]
+    );
+    click(cx, window, "menu-enabled");
+    let saved: toml::Value = toml::from_str(&f.settings_file()).unwrap();
+    assert_eq!(saved["windows_menu"]["enabled"].as_bool(), Some(false));
+    click(cx, window, "menu-enabled");
+    click(cx, window, "menu-recommended");
+    let saved: toml::Value = toml::from_str(&f.settings_file()).unwrap();
+    assert!(saved["windows_menu"].get("targets").is_none());
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn windows_menu_active_custom_preserves_empty_and_future_choices(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    for targets in [vec![], vec!["webp".to_owned(), "future-format".to_owned()]] {
+        let before = targets.clone();
+        cx.update(|cx| {
+            f.app.update(cx, |state, cx| {
+                state
+                    .save_settings_now(|settings| settings.windows_menu.targets = Some(targets), cx)
+                    .unwrap();
+            });
+        });
+        let (settings, _) = f.settings(SettingsTab::WindowsMenu, cx);
+        click(cx, settings, "menu-custom");
+        let saved = crate::settings::Settings::load(&f.dir.path().join("settings.toml")).unwrap();
+        assert_eq!(saved.windows_menu.targets, Some(before));
+    }
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn windows_menu_preview_does_not_limit_quick_convert(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("manual conversion.png");
+    let (settings, _) = f.settings(SettingsTab::WindowsMenu, cx);
+    click(cx, settings, "menu-custom");
+    click(cx, settings, "menu-clear");
+    assert_eq!(
+        label(cx, settings, "menu-preview-png").as_deref(),
+        Some("PNG → Mais")
+    );
+    click(cx, settings, "menu-format-webp");
+    assert_eq!(
+        label(cx, settings, "menu-preview-png").as_deref(),
+        Some("PNG → WebP, Mais")
+    );
+    click(cx, settings, "menu-enabled");
+    assert_eq!(
+        label(cx, settings, "menu-preview-png").as_deref(),
+        Some("PNG → Menu disabled")
+    );
+
+    let (quick, _) = f.quick(cli(vec![png], None, None), cx);
+    assert!(shown(cx, quick, "to-jpeg"));
+    click(cx, quick, "to-jpeg");
+    click(cx, quick, "convert");
+    let job = f.last_job(cx);
+    wait_until(cx, "manual conversion with Explorer menu disabled", |cx| {
+        f.app
+            .read(cx)
+            .entry(job)
+            .is_some_and(|entry| entry.status.is_finished())
+    });
+    assert!(is_jpeg(&f.dir.path().join("manual conversion.jpg")));
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn windows_menu_save_failure_rolls_back_and_can_recover(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let path = f.dir.path().join("settings.toml");
+    if path.is_file() {
+        std::fs::remove_file(&path).unwrap();
+    }
+    std::fs::create_dir(&path).unwrap();
+    let (settings, _) = f.settings(SettingsTab::WindowsMenu, cx);
+    click(cx, settings, "menu-custom");
+    assert!(
+        label(cx, settings, "menu-error")
+            .unwrap()
+            .contains("couldn't be saved")
+    );
+    cx.read(|cx| assert!(f.app.read(cx).settings.windows_menu.targets.is_none()));
+    assert!(path.is_dir());
+    std::fs::remove_dir(&path).unwrap();
+    click(cx, settings, "menu-custom");
+    assert!(!shown(cx, settings, "menu-error"));
+    let saved = crate::settings::Settings::load(&path).unwrap();
+    assert!(saved.windows_menu.targets.is_some());
+}
+
 /// Jobs run on real threads, so this polls in real time rather than on the
 /// test clock.
 fn wait_for_label(
@@ -671,6 +783,133 @@ fn explorer_request_opens_activity_and_converts_beside_the_input(cx: &mut TestAp
 }
 
 #[gpui_kit::test]
+fn explorer_more_opens_selected_files_without_starting_a_conversion(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("mais ação 100% &.png");
+    cx.update(|cx| {
+        f.app.update(cx, |state, _| {
+            state.settings.windows_menu.targets = Some(vec!["jpeg".into()]);
+        });
+    });
+    // This is the targetless wire request sent by Explorer's Mais command.
+    let request: Request = serde_json::from_value(serde_json::json!({
+        "files": [png.clone()], "source": "Cli", "to": null,
+        "preset": null, "show_progress": false, "license": null, "auth": null
+    }))
+    .unwrap();
+    assert!(!request.auto_start());
+    cx.update(|cx| super::route(request, cx));
+    let (window, view) = window_of::<QuickView>(cx);
+    cx.read(|cx| {
+        let view = view.read(cx);
+        assert_eq!(view.files, vec![png]);
+        assert!(view.to.is_none());
+        assert!(view.jobs.is_empty());
+    });
+    assert_eq!(f.jobs(cx), 0);
+    assert!(
+        shown(cx, window, "to-tga"),
+        "Mais keeps targets outside the quick menu"
+    );
+    assert_eq!(cx.update(|cx| cx.windows().len()), 1);
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn explorer_cold_start_drains_more_without_opening_activity(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("cold start seleção.png");
+    let runtime = f.dir.path().join("runtime");
+    std::fs::create_dir(&runtime).unwrap();
+    std::fs::write(
+        runtime.join("request-explorer.json"),
+        serde_json::to_vec(&cli(vec![png.clone()], None, None)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        crate::request::parse_args(vec!["--from-explorer".into()], &runtime),
+        Ok(crate::request::Command::ExplorerInbox)
+    );
+    // Use the startup dispatch and the real file inbox, rather than routing
+    // only the already-decoded request (which hid the original extra window).
+    cx.update(|cx| {
+        for request in crate::initial_requests(None) {
+            super::route(request, cx);
+        }
+    });
+    assert_eq!(cx.update(|cx| cx.windows().len()), 0);
+    let received = std::cell::RefCell::new(Vec::new());
+    crate::instance::drain_inbox(&runtime, |request| received.borrow_mut().push(request));
+    cx.update(|cx| {
+        for request in received.into_inner() {
+            super::route(request, cx);
+        }
+    });
+    let (_, view) = window_of::<QuickView>(cx);
+    cx.read(|cx| {
+        assert_eq!(view.read(cx).files, [png]);
+        assert!(Open::<MainView>::get(cx).is_none());
+    });
+    assert_eq!(cx.update(|cx| cx.windows().len()), 1);
+    assert_eq!(f.jobs(cx), 0);
+    assert_eq!(std::fs::read_dir(runtime).unwrap().count(), 0);
+}
+
+#[cfg(windows)]
+#[gpui_kit::test]
+fn more_preserves_activity_that_the_user_already_opened(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("existing activity.png");
+    cx.update(|cx| {
+        for request in crate::initial_requests(Some(Request::default())) {
+            super::route(request, cx);
+        }
+    });
+    let (activity, _) = window_of::<MainView>(cx);
+    cx.update(|cx| super::route(cli(vec![png.clone()], None, None), cx));
+    let (_, quick) = window_of::<QuickView>(cx);
+    assert_eq!(window_of::<MainView>(cx).0, activity);
+    cx.read(|cx| assert_eq!(quick.read(cx).files, [png]));
+    assert_eq!(cx.update(|cx| cx.windows().len()), 2);
+    assert_eq!(f.jobs(cx), 0);
+}
+
+#[gpui_kit::test]
+fn explorer_more_can_select_mp3_from_video_without_auto_start(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    if !cx.read(|cx| {
+        f.app
+            .read(cx)
+            .registry
+            .targets(format_by_id("mp4").unwrap())
+            .iter()
+            .any(|format| format.id == "mp3")
+    }) {
+        eprintln!("skipping video More targets: FFmpeg missing");
+        return;
+    }
+    // This test exercises picker behavior; real media conversion is checked by the CLI.
+    let video = f.dir.path().join("selected video.mp4");
+    std::fs::write(&video, "video picker fixture").unwrap();
+    cx.update(|cx| {
+        f.app.update(cx, |state, _| {
+            state.settings.windows_menu.targets = Some(vec!["mp4".into(), "gif".into()]);
+        });
+        super::route(cli(vec![video.clone()], None, None), cx);
+    });
+    let (window, view) = window_of::<QuickView>(cx);
+    assert!(shown(cx, window, "to-mp3"));
+    click(cx, window, "to-mp3");
+    cx.read(|cx| {
+        let view = view.read(cx);
+        assert_eq!(view.files, vec![video]);
+        assert_eq!(view.to.map(|format| format.id), Some("mp3"));
+        assert!(view.jobs.is_empty());
+    });
+    assert_eq!(f.jobs(cx), 0, "choosing MP3 still waits for Convert");
+}
+
+#[gpui_kit::test]
 fn a_cli_request_with_a_target_converts_in_place_without_a_window(cx: &mut TestAppContext) {
     let f = Fixture::new(cx);
     let png = f.png("red dot.png");
@@ -699,6 +938,41 @@ fn a_cli_request_with_a_target_converts_in_place_without_a_window(cx: &mut TestA
 
     // While it ran, the tray would have shown a spinner and nothing more.
     cx.read(|cx| assert_eq!(tray::indicator(f.app.read(cx)), Some(Indicator::Idle)));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[gpui_kit::test]
+fn silent_conversion_quits_with_the_default_menu_bar_setting(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("silent exit.png");
+    cx.update(|cx| {
+        super::route(cli(vec![png], Some("jpeg"), None), cx);
+    });
+    wait_until(cx, "the app to quit after its silent conversion", |cx| {
+        f.app.read(cx).quit_requested
+    });
+    assert!(is_jpeg(&f.dir.path().join("silent exit.jpg")));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[gpui_kit::test]
+fn closing_the_last_window_waits_for_conversion_then_quits(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let png = f.png("close while converting.png");
+    let (window, _) = f.main(cx);
+    cx.update(|cx| {
+        cx.on_window_closed(crate::last_window_closed).detach();
+        super::route(cli(vec![png], Some("jpeg"), None), cx);
+        assert_eq!(f.app.read(cx).queue.active(), 1);
+        window
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        assert!(!f.app.read(cx).quit_requested);
+    });
+    wait_until(cx, "the app to quit after the last window closes", |cx| {
+        f.app.read(cx).quit_requested
+    });
+    assert!(is_jpeg(&f.dir.path().join("close while converting.jpg")));
 }
 
 #[gpui_kit::test]
@@ -1632,6 +1906,49 @@ fn a_screenshot_automation_converts_and_can_copy(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn automation_outputs_renamed_on_collision_do_not_start_another_rule(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let folder = f.dir.path().join("Automations");
+    std::fs::create_dir(&folder).unwrap();
+    image::RgbImage::from_pixel(4, 4, image::Rgb([20, 80, 200]))
+        .save(folder.join("capture.png"))
+        .unwrap();
+    f.app.update(cx, |s, cx| {
+        s.update_settings(
+            |set| {
+                let mut bmp = set.automations[0].clone();
+                bmp.name = "bmp".into();
+                bmp.to = "png".into();
+                bmp.watch = Some(crate::settings::WatchKind::Folder);
+                bmp.folder = Some(folder.clone());
+                bmp.copy_to_clipboard = Some(false);
+                let mut jpeg = bmp.clone();
+                jpeg.name = "Other images".into();
+                jpeg.to = "jpeg".into();
+                set.automations = vec![bmp, jpeg];
+            },
+            cx,
+        );
+        s.poll_automations(cx);
+    });
+
+    image::RgbImage::from_pixel(4, 4, image::Rgb([200, 40, 40]))
+        .save(folder.join("capture.bmp"))
+        .unwrap();
+    f.app.update(cx, |s, cx| s.poll_automations(cx));
+    f.app.update(cx, |s, cx| s.poll_automations(cx));
+    wait_until(cx, "the automation's renamed output", |cx| {
+        f.app.read(cx).recent.len() == 1
+    });
+    assert!(is_png(&folder.join("capture (1).png")));
+
+    f.app.update(cx, |s, cx| s.poll_automations(cx));
+    f.app.update(cx, |s, cx| s.poll_automations(cx));
+    assert_eq!(f.jobs(cx), 1, "an output must not enter the JPEG rule");
+    assert!(!folder.join("capture (1).jpg").exists());
+}
+
+#[gpui_kit::test]
 fn every_window_renders_in_both_themes(cx: &mut TestAppContext) {
     let f = Fixture::licensed(cx, Some("2026-09-30"), None);
     let png = f.png("a.png");
@@ -1644,6 +1961,8 @@ fn every_window_renders_in_both_themes(cx: &mut TestAppContext) {
         assert!(shown(cx, quick, "convert"));
         for tab in [
             SettingsTab::General,
+            #[cfg(windows)]
+            SettingsTab::WindowsMenu,
             SettingsTab::Presets,
             SettingsTab::License,
         ] {
@@ -2091,13 +2410,20 @@ fn windows_fit_their_content_at_their_opening_sizes(cx: &mut TestAppContext) {
         click(cx, quick, "to-jpeg");
         assert!(fits(cx, quick, "convert"), "Quick convert, two files");
 
-        for tab in [SettingsTab::General, SettingsTab::License] {
+        for tab in [
+            SettingsTab::General,
+            SettingsTab::License,
+            #[cfg(windows)]
+            SettingsTab::WindowsMenu,
+        ] {
             cx.update(|cx| super::show_settings(tab, cx));
             let (settings, _) = window_of::<SettingsView>(cx);
             let last = if tab == SettingsTab::General {
                 "jobs"
-            } else {
+            } else if tab == SettingsTab::License {
                 "settings-buy"
+            } else {
+                "menu-recommended"
             };
             assert!(fits(cx, settings, last), "{tab:?}");
         }

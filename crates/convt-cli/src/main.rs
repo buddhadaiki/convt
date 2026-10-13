@@ -82,9 +82,12 @@ enum Cmd {
     /// List the formats a file can be converted to
     Targets {
         file: PathBuf,
-        /// Only the few popular targets right-click menus offer
+        /// Only the targets right-click menus offer
         #[arg(long)]
         menu: bool,
+        /// Print menu target IDs and whether More options is available
+        #[arg(long, requires = "menu")]
+        json: bool,
     },
     /// Show the engines available on this machine
     Engines,
@@ -253,6 +256,26 @@ fn load_preset(name: &str) -> anyhow::Result<Preset> {
     Ok(Preset::load(&path)?)
 }
 
+#[cfg(windows)]
+fn windows_menu() -> anyhow::Result<convt_core::WindowsMenu> {
+    let Some(path) = convt_engines::paths::config_dir().map(|dir| dir.join("settings.toml")) else {
+        return Ok(convt_core::WindowsMenu::default());
+    };
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(convt_core::WindowsMenu::default());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("could not read Windows menu settings {}", path.display())
+            });
+        }
+    };
+    convt_core::WindowsMenu::from_settings_toml(&contents)
+        .with_context(|| format!("could not parse Windows menu settings {}", path.display()))
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let registry = convt_engines::default_registry();
@@ -277,16 +300,29 @@ fn main() -> anyhow::Result<()> {
                 println!("{:<6} {:<13} {}", f.id, format!("{:?}", f.category), f.name);
             }
         }
-        Some(Cmd::Targets { file, menu }) => {
+        Some(Cmd::Targets { file, menu, json }) => {
             let from = format_by_extension(&file)
                 .with_context(|| format!("unknown format: {}", file.display()))?;
-            let targets = if menu {
-                registry.menu_targets(from)
+            let (targets, more) = if menu {
+                #[cfg(windows)]
+                {
+                    let policy = windows_menu()?;
+                    (policy.menu_targets(&registry, from), policy.enabled)
+                }
+                #[cfg(not(windows))]
+                {
+                    (registry.menu_targets(from), true)
+                }
             } else {
-                registry.targets(from)
+                (registry.targets(from), false)
             };
-            for f in targets {
-                println!("{}", f.id);
+            if json {
+                let targets: Vec<_> = targets.iter().map(|format| format.id).collect();
+                println!("{}", json!({ "targets": targets, "more": more }));
+            } else {
+                for f in targets {
+                    println!("{}", f.id);
+                }
             }
         }
         Some(Cmd::Engines) => {

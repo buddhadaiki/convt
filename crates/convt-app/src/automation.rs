@@ -44,10 +44,16 @@ pub struct WatchState {
 }
 
 impl WatchState {
+    /// Published paths may be renamed on collision or written to another
+    /// watched folder. Never let those outputs enter another automation.
+    pub fn ignore_outputs(&mut self, outputs: &[PathBuf]) {
+        self.submitted.extend(outputs.iter().cloned());
+    }
+
     /// Files that are new, stable and match an enabled rule, as
     /// `(rule index, path)` in rule order.
     pub fn drain_ready(&mut self, rules: &[Automation]) -> Vec<(usize, PathBuf)> {
-        let mut ready = Vec::new();
+        let mut folders: Vec<(PathBuf, Vec<usize>)> = Vec::new();
         for (index, rule) in rules.iter().enumerate() {
             if !rule.is_watched() {
                 continue;
@@ -55,6 +61,13 @@ impl WatchState {
             let WatchStatus::Folder(dir) = watch_status(rule) else {
                 continue;
             };
+            match folders.iter_mut().find(|(folder, _)| *folder == dir) {
+                Some((_, indices)) => indices.push(index),
+                None => folders.push((dir, vec![index])),
+            }
+        }
+        let mut ready = Vec::new();
+        for (dir, indices) in folders {
             let Ok(entries) = list_dir(&dir) else {
                 continue;
             };
@@ -78,19 +91,26 @@ impl WatchState {
                         self.seen.insert(path, len);
                     }
                     Some(_) => {
-                        if matches_rule(rule, &path, &dir) {
-                            self.submitted.insert(path.clone());
+                        // Observe each file once per poll, then choose the first
+                        // matching rule. A non-match must not hide it from another
+                        // rule, and two rules must not bypass the settling wait.
+                        let matching = indices
+                            .iter()
+                            .copied()
+                            .find(|&index| matches_rule(&rules[index], &path, &dir));
+                        self.submitted.insert(path.clone());
+                        if let Some(index) = matching {
+                            let rule = &rules[index];
                             if let Some(to) = format_by_id(&rule.to) {
                                 self.submitted.insert(path.with_extension(to.extension()));
                             }
                             ready.push((index, path));
-                        } else {
-                            self.submitted.insert(path);
                         }
                     }
                 }
             }
         }
+        ready.sort_by_key(|(index, _)| *index);
         ready
     }
 }
@@ -556,6 +576,62 @@ mod tests {
         let ready = state.drain_ready(&[rec]);
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].1, file);
+    }
+
+    #[test]
+    fn shared_folder_rules_select_files_only_after_their_sizes_settle() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("Desktop");
+        std::fs::create_dir(&dir).unwrap();
+        let rules = [
+            rule("Screenshots", "png", WatchKind::Screenshot, &dir),
+            rule("Screen recordings", "mp4", WatchKind::Recording, &dir),
+        ];
+        let mut state = WatchState::default();
+        assert!(state.drain_ready(&rules).is_empty());
+
+        let screenshot = dir.join("Screenshot 1.bmp");
+        let recording = dir.join("Screen Recording 1.mov");
+        std::fs::write(&screenshot, b"still image").unwrap();
+        std::fs::write(&recording, b"first recording chunk").unwrap();
+        assert!(
+            state.drain_ready(&rules).is_empty(),
+            "two rules must not count as two observations of the same file"
+        );
+
+        std::fs::write(&recording, b"first and second recording chunks").unwrap();
+        assert_eq!(state.drain_ready(&rules), [(0, screenshot)]);
+        assert_eq!(state.drain_ready(&rules), [(1, recording)]);
+        assert!(state.drain_ready(&rules).is_empty());
+    }
+
+    #[test]
+    fn shared_folder_outputs_do_not_start_other_rules() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let rules = [
+            rule("Images", "png", WatchKind::Folder, dir),
+            rule("Photos", "jpeg", WatchKind::Folder, dir),
+        ];
+        let mut state = WatchState::default();
+        assert!(state.drain_ready(&rules).is_empty());
+
+        let bmp = dir.join("capture.bmp");
+        std::fs::write(&bmp, b"image").unwrap();
+        assert!(state.drain_ready(&rules).is_empty());
+        assert_eq!(state.drain_ready(&rules), [(0, bmp)]);
+        std::fs::write(dir.join("capture.png"), b"converted image").unwrap();
+        assert!(state.drain_ready(&rules).is_empty());
+        assert!(state.drain_ready(&rules).is_empty());
+
+        // An independent PNG skips the first rule and reaches the second.
+        let png = dir.join("photo.png");
+        std::fs::write(&png, b"another image").unwrap();
+        assert!(state.drain_ready(&rules).is_empty());
+        assert_eq!(state.drain_ready(&rules), [(1, png)]);
+        std::fs::write(dir.join("photo.jpg"), b"converted photo").unwrap();
+        assert!(state.drain_ready(&rules).is_empty());
+        assert!(state.drain_ready(&rules).is_empty());
     }
 
     #[test]

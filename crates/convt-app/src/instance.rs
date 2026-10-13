@@ -183,47 +183,95 @@ pub struct Primary {
     /// Held, never read: owning the named mutex is what makes this the primary.
     #[allow(dead_code)]
     mutex: windows_sys::Win32::Foundation::HANDLE,
+    dir: PathBuf,
 }
 
 #[cfg(windows)]
 impl Primary {
     pub fn listen(self, on_request: impl Fn(Request) + Send + 'static) {
         // Keep the mutex for the life of the process so later launches forward.
+        let dir = self.dir.clone();
         std::mem::forget(self);
         std::thread::Builder::new()
             .name("convt-instance".into())
-            .spawn(move || loop {
-                let dir = runtime_dir();
-                let Ok(entries) = std::fs::read_dir(&dir) else {
+            .spawn(move || {
+                loop {
+                    drain_inbox(&dir, &on_request);
                     std::thread::sleep(std::time::Duration::from_millis(50));
-                    continue;
-                };
-                let mut requests: Vec<_> = entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| {
-                        path.file_name()
-                            .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.starts_with("request-") && name.ends_with(".json"))
-                    })
-                    .collect();
-                requests.sort();
-                for path in requests {
-                    let bytes = std::fs::read(&path);
-                    let _ = std::fs::remove_file(&path);
-                    match bytes.and_then(|bytes| serde_json::from_slice(&bytes).map_err(std::io::Error::other)) {
-                        Ok(request) => on_request(request),
-                        Err(error) => tracing::warn!(error = %error, path = %path.display(), "bad instance request"),
-                    }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
             })
             .expect("spawn instance listener");
     }
 }
 
 #[cfg(windows)]
+pub(crate) fn drain_inbox(dir: &std::path::Path, on_request: impl Fn(Request)) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut requests: Vec<_> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("request-") && name.ends_with(".json"))
+        })
+        .collect();
+    requests.sort();
+    for path in requests {
+        let bytes = std::fs::read(&path);
+        let _ = std::fs::remove_file(&path);
+        match bytes.and_then(|bytes| serde_json::from_slice(&bytes).map_err(std::io::Error::other))
+        {
+            Ok(request) => on_request(request),
+            Err(error) => {
+                tracing::warn!(error = %error, path = %path.display(), "bad instance request")
+            }
+        }
+    }
+}
+
+/// Keep the production namespace unchanged, but isolate a caller's explicit
+/// runtime directory. The Explorer handler uses this same UTF-16 FNV-1a key.
+#[cfg(windows)]
+fn mutex_name(runtime_override: Option<&std::path::Path>) -> String {
+    use std::os::windows::ffi::OsStrExt;
+    match runtime_override {
+        None => "Local\\convt-instance".into(),
+        Some(dir) => {
+            let key = dir
+                .as_os_str()
+                .encode_wide()
+                .fold(14695981039346656037u64, |key, unit| {
+                    (key ^ u64::from(unit)).wrapping_mul(1099511628211)
+                });
+            format!("Local\\convt-instance-{key:016x}")
+        }
+    }
+}
+
+#[cfg(windows)]
+fn claim_windows(dir: &std::path::Path, req: Option<&Request>) -> std::io::Result<Role> {
+    let runtime_override = std::env::var_os("CONVT_RUNTIME_DIR").map(PathBuf::from);
+    claim_named(dir, req, &mutex_name(runtime_override.as_deref()))
+}
+
+#[cfg(windows)]
 pub fn claim(dir: &std::path::Path, req: &Request) -> std::io::Result<Role> {
+    claim_windows(dir, Some(req))
+}
+
+/// Explorer queued its request before launching. If another process wins
+/// startup, its listener already owns that request; do not enqueue a second
+/// empty request that would open Activity in that process.
+#[cfg(windows)]
+pub fn claim_queued(dir: &std::path::Path) -> std::io::Result<Role> {
+    claim_windows(dir, None)
+}
+
+#[cfg(windows)]
+fn claim_named(dir: &std::path::Path, req: Option<&Request>, name: &str) -> std::io::Result<Role> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError};
     use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -232,7 +280,7 @@ pub fn claim(dir: &std::path::Path, req: &Request) -> std::io::Result<Role> {
     // The Local namespace is scoped to the interactive user's session. A
     // machine-wide mutex would make one user's launch suppress another user's
     // independent app and request inbox.
-    let name: Vec<u16> = std::ffi::OsStr::new("Local\\convt-instance")
+    let name: Vec<u16> = std::ffi::OsStr::new(name)
         .encode_wide()
         .chain(Some(0))
         .collect();
@@ -244,6 +292,9 @@ pub fn claim(dir: &std::path::Path, req: &Request) -> std::io::Result<Role> {
     }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe { CloseHandle(mutex) };
+        let Some(req) = req else {
+            return Ok(Role::Forwarded);
+        };
         let bytes = serde_json::to_vec(req).map_err(std::io::Error::other)?;
         let id = format!(
             "{}-{}",
@@ -256,7 +307,10 @@ pub fn claim(dir: &std::path::Path, req: &Request) -> std::io::Result<Role> {
         std::fs::rename(temp, path)?;
         return Ok(Role::Forwarded);
     }
-    Ok(Role::Primary(Primary { mutex }))
+    Ok(Role::Primary(Primary {
+        mutex,
+        dir: dir.into(),
+    }))
 }
 
 #[cfg(windows)]
@@ -266,6 +320,81 @@ static REQUEST_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsi
 impl Drop for Primary {
     fn drop(&mut self) {
         unsafe { windows_sys::Win32::Foundation::CloseHandle(self.mutex) };
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn runtime_override_uses_the_same_stable_namespace_as_explorer() {
+        assert_eq!(mutex_name(None), "Local\\convt-instance");
+        assert_eq!(
+            mutex_name(Some(Path::new(r"C:\convt-runtime-ação"))),
+            "Local\\convt-instance-bafbcab710422a4c"
+        );
+        assert_ne!(
+            mutex_name(Some(Path::new(r"C:\one"))),
+            mutex_name(Some(Path::new(r"C:\two")))
+        );
+    }
+
+    #[test]
+    fn queued_second_launch_does_not_add_a_main_window_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = mutex_name(Some(dir.path()));
+        let request = Request {
+            files: vec![dir.path().join("ação & file.png")],
+            source: Some(crate::request::Source::Cli),
+            ..Request::default()
+        };
+        std::fs::write(
+            dir.path().join("request-explorer.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        let Role::Primary(primary) = claim_named(dir.path(), None, &name).unwrap() else {
+            panic!("first queued launch must own the instance");
+        };
+        assert!(matches!(
+            claim_named(dir.path(), None, &name).unwrap(),
+            Role::Forwarded
+        ));
+        let received = RefCell::new(Vec::new());
+        drain_inbox(dir.path(), |request| received.borrow_mut().push(request));
+        assert_eq!(received.into_inner(), [request]);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        drop(primary);
+        assert!(matches!(
+            claim_named(dir.path(), None, &name).unwrap(),
+            Role::Primary(_)
+        ));
+    }
+
+    #[test]
+    fn normal_second_launch_still_forwards_its_explicit_request_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = mutex_name(Some(dir.path()));
+        let Role::Primary(_primary) = claim_named(dir.path(), None, &name).unwrap() else {
+            panic!("first launch must own the instance");
+        };
+        let request = Request {
+            files: vec![dir.path().join("photo.png")],
+            to: Some("webp".into()),
+            source: Some(crate::request::Source::Cli),
+            ..Request::default()
+        };
+        assert!(matches!(
+            claim_named(dir.path(), Some(&request), &name).unwrap(),
+            Role::Forwarded
+        ));
+        let received = RefCell::new(Vec::new());
+        drain_inbox(dir.path(), |request| received.borrow_mut().push(request));
+        assert_eq!(received.into_inner(), [request]);
     }
 }
 
