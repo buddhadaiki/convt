@@ -269,9 +269,9 @@ class ModernMenuChildGuard(unittest.TestCase):
         self.assertTrue(result["result"]["ok"], result)
         self.assertEqual(result["events"], ["start", "wait:20000", "dispose"])
         arguments = result["arguments"]
-        self.assertIn('-NoProfile -NonInteractive -File "', arguments)
+        # The Windows client default policy (Restricted) refuses -File scripts.
+        self.assertIn('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "', arguments)
         self.assertIn("-action probe -classid 710fb9a8-c47e-4b39-9cfa-e273ab1b78f8", arguments.lower())
-        self.assertNotIn("executionpolicy", arguments.lower())
 
     def test_probe_entry_rejects_arbitrary_class_and_never_calls_package_lifecycle(self):
         result = self.run_case(entry=True)

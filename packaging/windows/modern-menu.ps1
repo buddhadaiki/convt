@@ -295,7 +295,8 @@ function Test-ConvtModernComActivation {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = Join-Path $windows 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $classId = ([guid](Get-ConvtMenuIdentity).ClassId).ToString('D')
-    $startInfo.Arguments = '-NoProfile -NonInteractive -File "' + $script:ConvtMenuSourcePath + '" -Action Probe -ClassId ' + $classId
+    # Process-scoped Bypass: the Windows client default (Restricted) refuses -File.
+    $startInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $script:ConvtMenuSourcePath + '" -Action Probe -ClassId ' + $classId
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true

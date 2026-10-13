@@ -187,6 +187,17 @@ def runtime(root, version):
         (root / name).write_bytes(pe)
 
 
+class NativeDispatcherCommandLine(unittest.TestCase):
+    def test_helper_runs_under_the_windows_client_default_execution_policy(self):
+        # Restricted refuses every -File script, and every MSI action checks the
+        # helper's exit code: without a process-scoped Bypass, install and
+        # uninstall would both fail on a default Windows client.
+        source = (HERE / "installer-actions.cpp").read_text(encoding="utf-8")
+        start = source.index("std::vector<std::wstring> arguments{powershell")
+        arguments = source[start:source.index("};", start)]
+        self.assertRegex(arguments, r'L"-NonInteractive",\s*L"-ExecutionPolicy", L"Bypass", L"-File"')
+
+
 @unittest.skipUnless(os.name == "nt" and POWERSHELL, "requires Windows PowerShell for mocked lifecycle")
 class FinishOptions(unittest.TestCase):
     def run_case(self, *, upgrade=False, steps=None, **changes):

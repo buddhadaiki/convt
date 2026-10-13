@@ -511,7 +511,11 @@ void run_script(MSIHANDLE installer, const wchar_t* action, const Options& selec
     if (!length || length >= MAX_PATH) fail(L"Could not locate System32");
     const std::wstring powershell = std::wstring(system_directory) + L"\\WindowsPowerShell\\v1.0\\powershell.exe";
     ResultLog result_log(directory);
-    std::vector<std::wstring> arguments{powershell, L"-NoProfile", L"-NonInteractive", L"-File",
+    // Windows clients default to the Restricted execution policy, which refuses
+    // every -File script. Bypass applies to this process only; Group Policy
+    // (MachinePolicy/UserPolicy) still takes precedence and needs signed helpers.
+    std::vector<std::wstring> arguments{powershell, L"-NoProfile", L"-NonInteractive",
+        L"-ExecutionPolicy", L"Bypass", L"-File",
         directory + L"\\finish-options.ps1", L"-Action", action, L"-InstallationRoot", selected.root,
         L"-ContextMenu", selected.context, L"-DesktopShortcut", selected.desktop,
         L"-TransactionId", selected.transaction, L"-CoreModernScript", directory + L"\\modern-menu.ps1",

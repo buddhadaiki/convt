@@ -16,7 +16,11 @@ The current helper requires actual out-of-process `IExplorerCommand` activation,
 in addition to checking registration and the external location, before it removes
 the owned classic verb to avoid
 duplicates. Windows 10 and machines without Developer Mode retain the classic
-menu. No policy, certificate trust or Developer Mode setting is changed.
+menu. No policy, certificate trust or Developer Mode setting is changed. The
+helpers run with a process-scoped `-ExecutionPolicy Bypass`, because the
+Windows client default (Restricted) refuses every `-File` script and would fail
+both install and uninstall; a Group Policy execution policy still overrides it
+and needs signed helpers.
 
 Registration and removal run as the installing user with checked errors and
 paired rollback. Upgrades snapshot the validated previous identity before
