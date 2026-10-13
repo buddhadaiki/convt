@@ -1,0 +1,2 @@
+// build.rs substitutes absolute paths before invoking Windows SDK rc.exe.
+101 ICON "@CONVT_APP_ICON@"
