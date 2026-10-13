@@ -24,6 +24,8 @@ pub mod pdfium;
 pub mod svg;
 #[cfg(windows)]
 mod windows_acl;
+#[cfg(windows)]
+mod windows_job;
 
 static CLOUD_SUPERVISED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -128,7 +130,7 @@ pub fn hide_console(cmd: &mut Command) {
 }
 
 /// Runs a tool to completion, feeding each stdout line to `on_line`. Kills
-/// the tool (and anything it spawned, on Unix) when the job is cancelled.
+/// the tool and anything it spawned when the job is cancelled.
 /// A non-zero exit becomes `EngineFailed` with the tail of stderr.
 ///
 /// Once the tool exits, anything it left running in its process group gets
@@ -158,6 +160,11 @@ fn run_tool_attempt(
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     }
     hide_console(&mut cmd);
+    #[cfg(windows)]
+    let job = windows_job::Job::new()?;
+    #[cfg(windows)]
+    let mut child = job.spawn(&mut cmd)?;
+    #[cfg(not(windows))]
     let mut child = cmd.spawn()?;
     let mut stderr = child.stderr.take().expect("piped");
     let (err_tx, err_rx) = mpsc::channel();
@@ -188,6 +195,8 @@ fn run_tool_attempt(
         }
     });
     let cancelled = |child: &mut Child| {
+        #[cfg(windows)]
+        job.terminate()?;
         kill_tree(child);
         let _ = child.wait();
         Err(Error::Cancelled)
@@ -219,8 +228,10 @@ fn run_tool_attempt(
             return cancelled(&mut child);
         }
     }
-    // The tool is a zombie until `wait`, so its process group id cannot be
-    // reused and this only reaches leftovers it spawned.
+    // On Unix the tool remains a zombie until `wait`, pinning its process
+    // group id. On Windows the owned job pins its descendants independently.
+    #[cfg(windows)]
+    job.terminate()?;
     kill_tree(&mut child);
     let status = child.wait()?;
     let stderr = err_rx.recv_timeout(DRAIN_GRACE).unwrap_or_default();
@@ -286,8 +297,6 @@ fn kill_tree(child: &mut Child) {
             libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
         }
     }
-    // TODO(windows): put the child in a job object so LibreOffice's
-    // soffice.bin dies with it.
     let _ = child.kill();
 }
 
@@ -339,6 +348,169 @@ mod tests {
         let (r, _, took) = sh("sleep 30", &cancel);
         assert!(matches!(r, Err(Error::Cancelled)), "{r:?}");
         assert!(took < Duration::from_secs(5), "{took:?}");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_process_tests {
+    use super::*;
+    use convt_core::{Cancel, Options, Step, format_by_id};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess,
+        WaitForSingleObject,
+    };
+
+    struct OwnedTestProcess(OwnedHandle);
+
+    impl OwnedTestProcess {
+        fn open(pid: u32) -> Self {
+            // SYNCHRONIZE lets the test observe actual termination while the
+            // handle pins this exact owned process, even if its PID is reused.
+            let handle = unsafe {
+                OpenProcess(
+                    PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | 0x0010_0000,
+                    0,
+                    pid,
+                )
+            };
+            assert!(
+                !handle.is_null(),
+                "open owned PID {pid}: {}",
+                std::io::Error::last_os_error()
+            );
+            // SAFETY: OpenProcess returned a new owned handle.
+            Self(unsafe { OwnedHandle::from_raw_handle(handle) })
+        }
+
+        fn stopped(&self) -> bool {
+            // SAFETY: the handle remains alive throughout the wait.
+            unsafe { WaitForSingleObject(self.0.as_raw_handle(), 3000) == WAIT_OBJECT_0 }
+        }
+    }
+
+    impl Drop for OwnedTestProcess {
+        fn drop(&mut self) {
+            // Cleanup also applies when the regression fails against the old
+            // implementation; only a handle obtained from our fixture is killed.
+            unsafe {
+                if WaitForSingleObject(self.0.as_raw_handle(), 0) != WAIT_OBJECT_0 {
+                    TerminateProcess(self.0.as_raw_handle(), 1);
+                    WaitForSingleObject(self.0.as_raw_handle(), 3000);
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "owned subprocess fixture launched by the Windows supervision tests"]
+    fn tool_fixture() {
+        match std::env::var("CONVT_TEST_TOOL_MODE").unwrap().as_str() {
+            "descendant" => {
+                println!("CONVT_DESCENDANT {}", std::process::id());
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                std::fs::write(std::env::var_os("CONVT_TEST_TOOL_READY").unwrap(), b"ready")
+                    .unwrap();
+                std::thread::sleep(Duration::from_secs(30));
+            }
+            mode => {
+                println!("CONVT_LAUNCHER {}", std::process::id());
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([
+                        "--exact",
+                        "windows_process_tests::tool_fixture",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env("CONVT_TEST_TOOL_MODE", "descendant");
+                hide_console(&mut command);
+                #[expect(
+                    clippy::zombie_processes,
+                    reason = "fixture must exit before its descendant to test job cleanup"
+                )]
+                let _child = command.spawn().unwrap();
+                let ready = PathBuf::from(std::env::var_os("CONVT_TEST_TOOL_READY").unwrap());
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !ready.exists() {
+                    assert!(Instant::now() < deadline, "owned descendant did not start");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                if mode == "cancel" {
+                    std::thread::sleep(Duration::from_secs(30));
+                }
+            }
+        }
+    }
+
+    fn run_owned_launcher(mode: &str) -> (Result<()>, Vec<OwnedTestProcess>, Duration) {
+        let work = tempfile::tempdir().unwrap();
+        let cancel = Cancel::new();
+        let timeout_cancel = cancel.clone();
+        let (done, wait) = mpsc::channel();
+        let watchdog = std::thread::spawn(move || {
+            if wait.recv_timeout(Duration::from_secs(10)).is_err() {
+                timeout_cancel.cancel();
+            }
+        });
+        let options = Options::default();
+        let step = Step {
+            from: format_by_id("png").unwrap(),
+            to: format_by_id("jpeg").unwrap(),
+        };
+        let ctx = Ctx::new(step, &options, &|_| {}, &cancel);
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "windows_process_tests::tool_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("CONVT_TEST_TOOL_MODE", mode)
+            .env("CONVT_TEST_TOOL_READY", work.path().join("ready"));
+        let mut processes = Vec::new();
+        let start = Instant::now();
+        let result = run_tool("test", command, &ctx, |line| {
+            let launcher = line.strip_prefix("CONVT_LAUNCHER ");
+            let descendant = line.strip_prefix("CONVT_DESCENDANT ");
+            if let Some(pid) = launcher.or(descendant) {
+                processes.push(OwnedTestProcess::open(pid.parse().unwrap()));
+                if mode == "cancel" && descendant.is_some() {
+                    cancel.cancel();
+                }
+            }
+        });
+        let elapsed = start.elapsed();
+        let _ = done.send(());
+        watchdog.join().unwrap();
+        (result, processes, elapsed)
+    }
+
+    #[test]
+    fn cancellation_stops_windows_launcher_and_descendant() {
+        let (result, processes, elapsed) = run_owned_launcher("cancel");
+        assert!(matches!(result, Err(Error::Cancelled)), "{result:?}");
+        assert_eq!(processes.len(), 2, "both owned processes must start");
+        assert!(
+            processes.iter().all(OwnedTestProcess::stopped),
+            "owned process survived cancellation"
+        );
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+    }
+
+    #[test]
+    fn windows_launcher_exit_stops_descendant_holding_pipes() {
+        let (result, processes, elapsed) = run_owned_launcher("exit");
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(processes.len(), 2, "both owned processes must start");
+        assert!(
+            processes.iter().all(OwnedTestProcess::stopped),
+            "owned descendant survived launcher exit"
+        );
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
     }
 }
 

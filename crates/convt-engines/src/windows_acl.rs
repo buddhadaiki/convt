@@ -273,6 +273,115 @@ pub(crate) fn trusted(path: &Path, ancestor: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test fixtures must not inherit grants from a shared TEMP or Desktop folder.
+/// Only the fresh TempDir receives a new ACL; all existing ancestors are read-only.
+#[cfg(test)]
+pub(crate) fn private_test_dir() -> anyhow::Result<tempfile::TempDir> {
+    let profile =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Windows profile is unavailable"))?;
+    private_test_dir_in(&profile)
+}
+
+#[cfg(test)]
+fn private_test_dir_in(parent: &Path) -> anyhow::Result<tempfile::TempDir> {
+    use anyhow::Context;
+    use std::path::{Component, PathBuf};
+    use windows_sys::Win32::Security::Authorization::{
+        EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, SET_ACCESS, SetEntriesInAclW, SetSecurityInfo,
+        TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+
+    if !parent.is_absolute() || !parent.is_dir() {
+        bail!("Windows ACL fixture parent must be an existing absolute directory");
+    }
+    let mut path = PathBuf::new();
+    for component in parent.components() {
+        if matches!(component, Component::ParentDir) {
+            bail!("Windows ACL fixture parent must not contain parent traversal");
+        }
+        path.push(component);
+        if !matches!(component, Component::Prefix(_)) {
+            trusted(&path, true).with_context(|| {
+                format!("cannot inspect ACL fixture ancestor {}", path.display())
+            })?;
+        }
+    }
+    // A missing next component requires a private parent, not just an ancestor
+    // that permits other users to create siblings. Refuse it before creating.
+    trusted(parent, false)
+        .with_context(|| format!("ACL fixture parent is not private: {}", parent.display()))?;
+    let temp = tempfile::Builder::new()
+        .prefix(".convt-acl-test-")
+        .tempdir_in(parent)
+        .with_context(|| format!("cannot create a fresh ACL fixture in {}", parent.display()))?;
+    let sids = trusted_sids().context("cannot load trusted SIDs for the ACL fixture")?;
+    let entries = [&sids.user, &sids.system, &sids.admins].map(|sid| EXPLICIT_ACCESS_W {
+        grfAccessPermissions: FILE_ALL_ACCESS,
+        grfAccessMode: SET_ACCESS,
+        grfInheritance: SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+        Trustee: TRUSTEE_W {
+            pMultipleTrustee: ptr::null_mut(),
+            MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+            TrusteeForm: TRUSTEE_IS_SID,
+            TrusteeType: TRUSTEE_IS_UNKNOWN,
+            ptstrName: sid.as_ptr().cast_mut().cast(),
+        },
+    });
+    let mut acl = ptr::null_mut();
+    // SAFETY: the SID buffers live through both security calls; Windows owns
+    // the returned ACL until the Descriptor frees it after SetSecurityInfo.
+    let error = unsafe {
+        SetEntriesInAclW(
+            entries.len() as u32,
+            entries.as_ptr(),
+            ptr::null(),
+            &mut acl,
+        )
+    };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error as i32))
+            .context("cannot build the ACL fixture DACL");
+    }
+    let _acl = Descriptor(acl.cast());
+    // Keep query rights while the security API changes inherited DACL protection.
+    let directory = std::fs::OpenOptions::new()
+        .access_mode(READ_CONTROL | WRITE_DAC)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(temp.path())
+        .with_context(|| {
+            format!(
+                "cannot open new ACL fixture {} for READ_CONTROL | WRITE_DAC",
+                temp.path().display()
+            )
+        })?;
+    // SAFETY: this handle refers only to the directory just created above.
+    // Protection removes ambient inherited grants; child grants remain private.
+    let error = unsafe {
+        SetSecurityInfo(
+            directory.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            acl,
+            ptr::null(),
+        )
+    };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error as i32)).with_context(|| {
+            format!(
+                "cannot protect the new ACL fixture DACL at {}",
+                temp.path().display()
+            )
+        });
+    }
+    trusted(temp.path(), false)
+        .with_context(|| format!("new ACL fixture is not private: {}", temp.path().display()))?;
+    Ok(temp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,7 +389,7 @@ mod tests {
 
     #[test]
     fn private_pack_rejects_other_users_write_access() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let file = temp.path().join("launcher.exe");
         std::fs::write(&file, b"not executable").unwrap();
         trusted(temp.path(), false).unwrap();
@@ -296,7 +405,7 @@ mod tests {
 
     #[test]
     fn ancestor_can_allow_sibling_creation_but_not_child_replacement() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let result = Command::new("icacls")
             .arg(temp.path())
             .args(["/grant", "*S-1-1-0:(AD)"])
@@ -316,7 +425,7 @@ mod tests {
 
     #[test]
     fn inherit_only_creator_owner_does_not_grant_access_to_pack_directory() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let result = Command::new("icacls")
             .arg(temp.path())
             .args(["/grant", "*S-1-3-0:(OI)(CI)(IO)(F)"])
@@ -339,7 +448,7 @@ mod tests {
 
     #[test]
     fn inherit_only_other_users_cannot_make_new_pack_children_writable() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let result = Command::new("icacls")
             .arg(temp.path())
             .args(["/grant", "*S-1-1-0:(OI)(CI)(IO)(F)"])
@@ -352,7 +461,7 @@ mod tests {
 
     #[test]
     fn low_integrity_label_is_rejected() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let file = temp.path().join("soffice.exe");
         std::fs::write(&file, b"not executable").unwrap();
         trusted(&file, false).unwrap();
@@ -368,7 +477,7 @@ mod tests {
 
     #[test]
     fn junctions_are_rejected_without_following_them() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = private_test_dir().unwrap();
         let real = temp.path().join("real");
         let junction = temp.path().join("junction");
         std::fs::create_dir(&real).unwrap();
@@ -381,5 +490,28 @@ mod tests {
         assert!(result.status.success(), "{result:?}");
         assert!(trusted(&junction, false).is_err());
         std::fs::remove_dir(junction).unwrap();
+    }
+
+    #[test]
+    fn private_fixture_children_are_trusted_and_unsafe_parents_are_refused() {
+        let temp = private_test_dir().unwrap();
+        let child = temp.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let file = child.join("launcher.exe");
+        std::fs::write(&file, b"not executable").unwrap();
+        trusted(&child, false).unwrap();
+        trusted(&file, false).unwrap();
+        let result = Command::new("icacls")
+            .arg(&child)
+            .args(["/grant", "*S-1-1-0:(M)"])
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+        let error = private_test_dir_in(&child).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("writable by another principal"),
+            "{error:#}"
+        );
+        assert_eq!(std::fs::read_dir(&child).unwrap().count(), 1);
     }
 }

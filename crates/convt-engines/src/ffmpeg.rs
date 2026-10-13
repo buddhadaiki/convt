@@ -158,6 +158,11 @@ fn video_scale(height: u32) -> String {
     )
 }
 
+// H.264/HEVC in 4:2:0 need even dimensions even when no height cap is set.
+// Reject a one-pixel edge rather than enlarging it to satisfy the encoder.
+const EVEN_VIDEO_SCALE: &str =
+    "scale='if(lt(iw,2),nan,trunc(iw/2)*2)':'if(lt(ih,2),nan,trunc(ih/2)*2)'";
+
 /// Encoder arguments for one output format and the user's options.
 /// Hardware encoders (VideoToolbox, NVENC, QSV, VAAPI, AMF) get picked here
 /// once detection lands.
@@ -167,7 +172,10 @@ fn output_args(to: &str, o: &Options) -> Vec<String> {
     let vp9_crf = q.map_or("32".into(), |q| crf(q, 52.0));
     let aac = format!("{}k", o.audio_bitrate.unwrap_or(192));
     let bitrate = o.audio_bitrate.map(|b| format!("{b}k"));
-    let scale = o.video_height.map(video_scale);
+    let scale = o
+        .video_height
+        .map(video_scale)
+        .or_else(|| matches!(to, "mp4" | "mov" | "mkv").then(|| EVEN_VIDEO_SCALE.to_string()));
     let mut args: Vec<String> = Vec::new();
     let mut push = |a: &[&str]| args.extend(a.iter().map(|s| s.to_string()));
     match to {
@@ -377,15 +385,19 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_unchanged() {
+    fn default_video_args_normalize_encoder_dimensions() {
         let o = Options::default();
         assert_eq!(
             output_args("mp4", &o).join(" "),
-            "-c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart"
+            format!(
+                "-c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -vf {EVEN_VIDEO_SCALE}"
+            )
         );
         assert_eq!(
             output_args("mkv", &o).join(" "),
-            "-c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k"
+            format!(
+                "-c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -vf {EVEN_VIDEO_SCALE}"
+            )
         );
         assert_eq!(
             output_args("webm", &o).join(" "),
@@ -513,6 +525,74 @@ mod tests {
                     String::from_utf8(result.stdout).unwrap().trim(),
                     format!("{},{}", expected.0, expected.1),
                     "{to}, cap {height}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_h264_conversion_accepts_odd_dimensions_without_enlarging() {
+        let engine = FfmpegEngine::new();
+        let Some(ffmpeg) = &engine.ffmpeg else {
+            eprintln!("SKIP default odd video: FFmpeg missing");
+            return;
+        };
+        let Some(probe) = &engine.ffprobe else {
+            eprintln!("SKIP default odd video: ffprobe missing");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        for (width, height, expected) in [(127, 95, "126,94"), (128, 96, "128,96")] {
+            let input = dir.path().join(format!("source-{width}.avi"));
+            let mut generate = Command::new(ffmpeg);
+            crate::hide_console(&mut generate);
+            let generated = generate
+                .args(["-v", "error", "-f", "lavfi", "-i"])
+                .arg(format!("testsrc=size={width}x{height}:rate=1:duration=1"))
+                .args(["-c:v", "png", "-pix_fmt", "rgb24"])
+                .arg(&input)
+                .output()
+                .unwrap();
+            assert!(generated.status.success(), "{generated:?}");
+            for target in ["mp4", "mov", "mkv"] {
+                let output = dir.path().join(format!("out-{width}-{target}"));
+                std::fs::create_dir(&output).unwrap();
+                let options = Options::default();
+                let cancel = convt_core::Cancel::new();
+                let step = Step {
+                    from: convt_core::format_by_id("avi").unwrap(),
+                    to: convt_core::format_by_id(target).unwrap(),
+                };
+                let ctx = Ctx::new(step, &options, &|_| {}, &cancel);
+                let files = match engine.convert(&ctx, &input, &output) {
+                    Ok(files) => files,
+                    Err(e) if e.to_string().contains("Unknown encoder") => {
+                        eprintln!("SKIP default odd video: H.264 encoder unavailable: {e}");
+                        return;
+                    }
+                    Err(e) => panic!("default {width}x{height} -> {target}: {e}"),
+                };
+                let mut query = Command::new(probe);
+                crate::hide_console(&mut query);
+                let dimensions = query
+                    .args([
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        "v:0",
+                        "-show_entries",
+                        "stream=width,height",
+                        "-of",
+                        "csv=p=0",
+                    ])
+                    .arg(&files[0])
+                    .output()
+                    .unwrap();
+                assert!(dimensions.status.success(), "{dimensions:?}");
+                assert_eq!(
+                    String::from_utf8(dimensions.stdout).unwrap().trim(),
+                    expected,
+                    "default {width}x{height} -> {target}"
                 );
             }
         }

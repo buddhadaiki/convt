@@ -1212,10 +1212,18 @@ mod tests {
     use super::*;
 
     fn test_tempdir() -> tempfile::TempDir {
-        // macOS temp paths start with /var, a system symlink to /private/var.
-        // Keep production roots strict; only resolve the test fixture parent.
-        let parent = std::env::temp_dir().canonicalize().unwrap();
-        private_tempdir(&parent, ".convt-pack-test-").unwrap()
+        #[cfg(windows)]
+        {
+            // Keep ACL assertions independent of the caller's shared TEMP path.
+            crate::windows_acl::private_test_dir().unwrap()
+        }
+        #[cfg(not(windows))]
+        {
+            // macOS temp paths start with /var, a system symlink to /private/var.
+            // Keep production roots strict; only resolve the test fixture parent.
+            let parent = std::env::temp_dir().canonicalize().unwrap();
+            private_tempdir(&parent, ".convt-pack-test-").unwrap()
+        }
     }
 
     fn private_root(root: &Path) {
@@ -1826,7 +1834,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn missing_pack_parents_require_private_existing_parent() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = test_tempdir();
         let root = temp.path().join("missing").join("packs");
         check_path(&root, true).unwrap();
         let result = std::process::Command::new("icacls")
