@@ -1,6 +1,6 @@
 # P12 launch security review
 
-Reviewed on 2026-10-05 for the Wednesday, 2026-10-07 launch. This review covers the local working tree, including its uncommitted implementation. It does not certify a production deployment. CLAUDE.md and docs/plan.md supplied the security contract. No implementation files were edited.
+Reviewed on 2026-10-05 for the Wednesday, 2026-10-07 launch. This review covers the local working tree, including its uncommitted implementation. It does not certify a production deployment. AGENTS.md and docs/plan.md supplied the security contract. No implementation files were edited.
 
 Five findings were verified: four medium and one low. No critical or high finding was verified. Resolve the medium findings before launch, and complete the production checks below before treating the cloud service as ready.
 
