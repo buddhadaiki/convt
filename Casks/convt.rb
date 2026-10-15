@@ -1,6 +1,6 @@
 cask "convt" do
-  version "0.4.0"
-  sha256 "6856fd3e75368c06988b0a92dd5202245a4177efe0b8cb9e894cf4a98891f0ac"
+  version "0.5.0"
+  sha256 "086ee033d25b419b0c2b66222871adfbbcaf85afd752413dffd6121a7163d35d"
 
   url "https://github.com/opencoredev/convt/releases/download/v#{version}/convt-macos-arm64.dmg",
       verified: "github.com/opencoredev/convt/"
