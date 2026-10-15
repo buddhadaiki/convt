@@ -3,7 +3,8 @@ use std::process::Command;
 
 use convt_core::{Background, Ctx, Engine, Error, Options, Result, Step, VideoCodec};
 
-const VIDEO_IN: &[&str] = &["mp4", "mov", "webm", "mkv", "avi", "gif"];
+/// MPEG and MPG4 are read but never written: their files become MP4 and friends.
+const VIDEO_IN: &[&str] = &["mp4", "mov", "webm", "mkv", "avi", "gif", "mpeg", "mpg4"];
 const VIDEO_OUT: &[&str] = &["mp4", "mov", "webm", "mkv", "avi", "gif"];
 /// Video to image grabs the first frame. WebP goes through PNG and the
 /// `image` engine: FFmpeg has no WebP encoder of its own, and the bundled
@@ -24,7 +25,7 @@ pub const LOCAL_INPUT_ARGS: &[&str] = &[
     "-protocol_whitelist",
     "file,pipe",
     "-format_whitelist",
-    "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,gif,mp3,wav,flac,aac,ogg",
+    "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,gif,mpeg,mpegvideo,mp3,wav,flac,aac,ogg",
 ];
 
 fn local_path(path: &Path) -> std::ffi::OsString {
@@ -487,6 +488,80 @@ mod tests {
             Err(e) => panic!("{e}"),
         };
         Some((dir, outputs[0].clone()))
+    }
+
+    #[test]
+    fn mpeg_and_mpg4_are_video_inputs_only() {
+        let steps = FfmpegEngine::new().steps();
+        let f = |id| convt_core::format_by_id(id).unwrap();
+        for from in ["mpeg", "mpg4"] {
+            for to in ["mp4", "mov", "webm", "gif", "png", "mp3"] {
+                assert!(
+                    steps.contains(&Step {
+                        from: f(from),
+                        to: f(to)
+                    }),
+                    "{from} -> {to}"
+                );
+            }
+            assert!(
+                !steps.iter().any(|step| step.to.id == from),
+                "{from} output"
+            );
+        }
+        // MPEG program streams and elementary MPEG-1/2 video, never playlists.
+        let whitelist = LOCAL_INPUT_ARGS[3].split(',').collect::<Vec<_>>();
+        assert!(whitelist.contains(&"mpeg") && whitelist.contains(&"mpegvideo"));
+    }
+
+    #[test]
+    fn mpeg_and_mpg4_files_become_h264_aac_mp4() {
+        let engine = FfmpegEngine::new();
+        let (Some(ffmpeg), Some(ffprobe)) = (&engine.ffmpeg, &engine.ffprobe) else {
+            eprintln!("skipping: ffmpeg or ffprobe missing");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        // DVD-style MPEG-2 with MP2 audio, and an MP4 that only has a .mpg4 name.
+        for (name, muxer, video, audio) in [
+            ("clip.mpg", "mpeg", "mpeg2video", "mp2"),
+            ("clip.mpg4", "mp4", "mpeg4", "aac"),
+        ] {
+            let input = dir.path().join(name);
+            let made = Command::new(ffmpeg)
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+                .arg("testsrc=size=128x96:rate=25:duration=1")
+                .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+                .args(["-c:v", video, "-c:a", audio, "-shortest", "-f", muxer])
+                .arg(&input)
+                .status()
+                .unwrap();
+            assert!(made.success(), "could not generate {name}");
+            let step = Step {
+                from: convt_core::format_by_extension(&input).unwrap(),
+                to: convt_core::format_by_id("mp4").unwrap(),
+            };
+            let cancel = convt_core::Cancel::new();
+            let options = Options::default();
+            let out = dir.path().join(format!("out-{muxer}"));
+            std::fs::create_dir(&out).unwrap();
+            let outputs = engine
+                .convert(&Ctx::new(step, &options, &|_| {}, &cancel), &input, &out)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(outputs[0].extension().unwrap(), "mp4");
+            let probe = Command::new(ffprobe)
+                .args(["-v", "error", "-show_entries", "stream=codec_name"])
+                .args(["-of", "csv=p=0"])
+                .arg(&outputs[0])
+                .output()
+                .unwrap();
+            let codecs = String::from_utf8_lossy(&probe.stdout);
+            assert!(
+                codecs.lines().any(|c| c.trim() == "h264")
+                    && codecs.lines().any(|c| c.trim() == "aac"),
+                "{name}: {codecs}"
+            );
+        }
     }
 
     #[test]
