@@ -110,15 +110,15 @@ a {
   scale: 1;
 }
 .btn-primary {
-  background: var(--chip-green);
+  background: var(--chip-brand);
   box-shadow:
     rgb(255 255 255 / 28%) 0 1px 0 inset,
-    #157f4a 0 0 0 1px,
-    rgb(10 60 35 / 25%) 0 1px 3px;
+    #3462ce 0 0 0 1px,
+    rgb(24 47 97 / 25%) 0 1px 3px;
   color: #ffffff;
 }
 .btn-primary:hover {
-  background: var(--chip-green);
+  background: var(--chip-brand);
   filter: brightness(1.06);
 }
 .btn-quiet {
@@ -211,7 +211,7 @@ a {
   transition: translate 200ms var(--toast-ease);
 }
 .switch:checked {
-  background: var(--green);
+  background: var(--brand);
 }
 .switch:checked::after {
   translate: 12px 0;

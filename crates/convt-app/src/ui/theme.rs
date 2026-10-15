@@ -41,8 +41,8 @@ pub struct Palette {
     /// Dividers between list rows.
     pub row_divider: Hsla,
     pub track: Hsla,
-    pub green: Hsla,
-    pub green_tint: Hsla,
+    pub brand: Hsla,
+    pub brand_tint: Hsla,
     pub error: Hsla,
     /// The defaults bar, footers and other recessed areas.
     pub recessed: Hsla,
@@ -58,7 +58,7 @@ pub struct Palette {
     pub radio_off: Hsla,
     pub toggle_off: Hsla,
     /// The checked fill of checkboxes, radios and switches. The design keeps
-    /// the light green in both appearances.
+    /// the light blue in both appearances.
     pub control_on: Hsla,
     pub step_off: Hsla,
     pub thumb: Hsla,
@@ -90,46 +90,46 @@ impl Palette {
         Self {
             dark: false,
             window: c(0xFFFFFF),
-            chrome: c(0xF3F4F3),
-            chrome_border: c(0xE3E5E4),
-            nav_selected: c(0xE3E6E4),
-            tab_selected: c(0xE1E4E2),
+            chrome: c(0xF3F4F5),
+            chrome_border: c(0xE4E4E6),
+            nav_selected: c(0xE4E5E8),
+            tab_selected: c(0xE2E3E6),
             text: c(0x0A0A0A),
-            secondary: c(0x6B6F6D),
-            tertiary: c(0x8A8F8C),
-            hairline: c(0xE6E8E7),
-            row_divider: c(0xEEF0EF),
-            track: c(0xE6E8E7),
-            green: c(0x1A9A5B),
-            green_tint: c(0xEEF7F2),
+            secondary: c(0x6C6E71),
+            tertiary: c(0x8B8E92),
+            hairline: c(0xE7E7E9),
+            row_divider: c(0xEFEFF1),
+            track: c(0xE7E7E9),
+            brand: c(0x4178F8),
+            brand_tint: c(0xF0F5FD),
             error: c(0xB3261E),
-            recessed: c(0xF7F8F7),
-            recessed_border: c(0xE6E8E7),
+            recessed: c(0xF7F8F9),
+            recessed_border: c(0xE7E7E9),
             chip: c(0xFFFFFF),
-            chip_border: c(0xE1E4E2),
-            card_border: c(0xE0E3E1),
+            chip_border: c(0xE2E3E6),
+            card_border: c(0xE1E2E5),
             control: c(0xFFFFFF),
-            control_border: c(0xDCDFDD),
-            segmented: c(0xF0F2F1),
+            control_border: c(0xDDDEE1),
+            segmented: c(0xF1F1F3),
             segmented_selected: c(0xFFFFFF),
-            mark_off: c(0xBFC4C1),
-            radio_off: c(0xC9CDCB),
-            toggle_off: c(0xD5D9D7),
-            control_on: c(0x1A9A5B),
-            step_off: c(0xE4E7E5),
+            mark_off: c(0xC0C3C7),
+            radio_off: c(0xCACCCF),
+            toggle_off: c(0xD6D8DB),
+            control_on: c(0x4178F8),
+            step_off: c(0xE5E6E9),
             thumb: c(0xFFFFFF),
-            thumb_border: c(0xD9DCDA),
+            thumb_border: c(0xDADBDE),
             trial_card: c(0xFFFFFF),
             popover: ca(0xFAFAFAFB),
             drop_bar: c(0xFFFFFF),
-            drop_border: c(0xC9CDCB),
-            popover_footer: c(0xF4F5F4),
-            popover_hairline: c(0xE6E8E7),
-            popover_track: c(0xE4E7E5),
+            drop_border: c(0xCACCCF),
+            popover_footer: c(0xF4F5F6),
+            popover_hairline: c(0xE7E7E9),
+            popover_track: c(0xE5E6E9),
             mock_item: c(0xFFFFFF),
             mock_menu: c(0xFFFFFF),
-            mock_separator: c(0xE6E8E7),
-            shadow: ca(0x0A1E1447),
+            mock_separator: c(0xE7E7E9),
+            shadow: ca(0x11192947),
             shadow_soft: ca(0x0000001F),
         }
     }
@@ -137,45 +137,45 @@ impl Palette {
     pub fn dark() -> Self {
         Self {
             dark: true,
-            window: c(0x1C1E1D),
-            chrome: c(0x232625),
-            chrome_border: c(0x2E3331),
-            nav_selected: c(0x2E3331),
-            tab_selected: c(0x2E3331),
-            text: c(0xEDEFEE),
-            secondary: c(0xA1A6A3),
-            tertiary: c(0x868B88),
-            hairline: c(0x2E3331),
-            row_divider: c(0x232726),
-            track: c(0x2E3331),
-            green: c(0x3FCB84),
-            green_tint: c(0x12261B),
+            window: c(0x1D1D1F),
+            chrome: c(0x242528),
+            chrome_border: c(0x303236),
+            nav_selected: c(0x303236),
+            tab_selected: c(0x303236),
+            text: c(0xEEEEF0),
+            secondary: c(0xA2A5A9),
+            tertiary: c(0x878A8E),
+            hairline: c(0x303236),
+            row_divider: c(0x242629),
+            track: c(0x303236),
+            brand: c(0x5F91FF),
+            brand_tint: c(0x182132),
             error: c(0xF2786D),
-            recessed: c(0x161918),
-            recessed_border: c(0x232726),
-            chip: c(0x1C201E),
-            chip_border: c(0x2E3331),
-            card_border: c(0x2E3331),
-            control: c(0x161918),
-            control_border: c(0x2E3331),
-            segmented: c(0x161918),
-            segmented_selected: c(0x2E3331),
-            mark_off: c(0x6F7572),
-            radio_off: c(0x6F7572),
-            toggle_off: c(0x4A4F4D),
-            control_on: c(0x1A9A5B),
-            step_off: c(0x2E3331),
-            thumb: c(0x2A2D2C),
+            recessed: c(0x17181b),
+            recessed_border: c(0x242629),
+            chip: c(0x1D1F22),
+            chip_border: c(0x303236),
+            card_border: c(0x303236),
+            control: c(0x17181b),
+            control_border: c(0x303236),
+            segmented: c(0x17181b),
+            segmented_selected: c(0x303236),
+            mark_off: c(0x717379),
+            radio_off: c(0x717379),
+            toggle_off: c(0x4C4E52),
+            control_on: c(0x4178F8),
+            step_off: c(0x303236),
+            thumb: c(0x2B2C2F),
             thumb_border: ca(0xFFFFFF1A),
-            trial_card: c(0x1C1E1D),
-            popover: c(0x2A2D2C),
-            drop_bar: c(0x232625),
+            trial_card: c(0x1D1D1F),
+            popover: c(0x2B2C2F),
+            drop_bar: c(0x242528),
             drop_border: ca(0xFFFFFF26),
-            popover_footer: c(0x232625),
+            popover_footer: c(0x242528),
             popover_hairline: ca(0xFFFFFF1A),
             popover_track: ca(0xFFFFFF1A),
-            mock_item: c(0x232625),
-            mock_menu: c(0x2A2D2C),
+            mock_item: c(0x242528),
+            mock_menu: c(0x2B2C2F),
             mock_separator: ca(0xFFFFFF1A),
             shadow: ca(0x00000099),
             shadow_soft: ca(0x00000066),
@@ -240,9 +240,9 @@ fn apply(cx: &mut App) {
         t.muted_foreground = p.secondary;
         t.border = p.control_border;
         t.input = p.control_border;
-        t.ring = p.green;
-        t.primary = p.green;
-        t.success = p.green;
+        t.ring = p.brand;
+        t.primary = p.brand;
+        t.success = p.brand;
         t.danger = p.error;
     });
 }
@@ -330,9 +330,9 @@ pub fn clickable(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Cl
         .aria_label(label)
 }
 
-/// The green call-to-action button.
+/// The blue call-to-action button.
 ///
-/// The white label on this green has about 3:1 contrast, below the 4.5:1 AA
+/// The white label on this blue has about 4:1 contrast, below the 4.5:1 AA
 /// target for text this size. Leo has not chosen the fix yet (a darker
 /// gradient or a dark label), so this matches the design for now.
 pub fn primary_button(
@@ -347,11 +347,11 @@ pub fn primary_button(
         .py(px(6.))
         .rounded(px(8.))
         .border_1()
-        .border_color(c(0x157F4A))
+        .border_color(c(0x3462CE))
         .bg(linear_gradient(
             180.,
-            linear_color_stop(c(0x2AB673), 0.),
-            linear_color_stop(c(0x1A9A5B), 1.),
+            linear_color_stop(c(0x6696FF), 0.),
+            linear_color_stop(c(0x4178F8), 1.),
         ))
         .shadow(vec![
             BoxShadow {
@@ -361,7 +361,7 @@ pub fn primary_button(
                 spread_radius: px(0.),
                 inset: true,
             },
-            shadow(ca(0x0A3C2340), 1., 2.),
+            shadow(ca(0x182F6140), 1., 2.),
         ])
         .when(disabled, |d| d.opacity(0.5).cursor_default())
         .child(
@@ -714,9 +714,9 @@ fn badge_tile(
         .unwrap_or_default();
     let badge = match category {
         Some(Category::Audio) => c(0x7A4BC2),
-        Some(Category::Video) => c(0x3A3F3C),
+        Some(Category::Video) => c(0x3B3E42),
         Some(Category::Pdf) => c(0xC9372C),
-        Some(Category::Spreadsheet) => c(0x2E7D4F),
+        Some(Category::Spreadsheet) => c(0x3D66C1),
         Some(Category::Presentation) => c(0xD0702C),
         _ => c(0x2B5BB8),
     };

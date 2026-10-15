@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 
 export const focusRing =
-  "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-green";
+  "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-brand";
 
 export function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -13,8 +13,8 @@ export function Container({ className, ...props }: ComponentProps<"div">) {
 }
 
 const buttonVariants = {
-  // White on green is about 3:1. Matches the design until Leo picks a fix.
-  primary: "bg-land-green text-white shadow-land-primary hover:brightness-110",
+  // White on this blue is about 3:1 to 4:1. Matches the design until Leo picks a fix.
+  primary: "bg-land-brand text-white shadow-land-primary hover:brightness-110",
   secondary: "bg-sunken text-ink shadow-land-secondary hover:bg-hover",
 };
 

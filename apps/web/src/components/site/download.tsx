@@ -54,7 +54,7 @@ export function Sha({ value }: { value: string }) {
           setTimeout(() => setCopied(false), 1500);
         }}
         className={cx(
-          "shrink-0 cursor-pointer rounded-sm font-sans text-xs/4 font-medium text-[#157f4a] dark:text-green hover:underline",
+          "shrink-0 cursor-pointer rounded-sm font-sans text-xs/4 font-medium text-[#3462ce] dark:text-brand hover:underline",
           focusRing,
         )}
       >

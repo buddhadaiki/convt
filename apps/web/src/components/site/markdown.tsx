@@ -119,7 +119,7 @@ export function Blocks({ blocks }: { blocks: Block[] }) {
                 <li key={j} className="flex gap-3 text-[15px]/6 text-ink">
                   <span
                     aria-hidden="true"
-                    className="mt-[9px] size-1.5 shrink-0 rounded-[3px] bg-green"
+                    className="mt-[9px] size-1.5 shrink-0 rounded-[3px] bg-brand"
                   />
                   <span>
                     <Inline text={item} />

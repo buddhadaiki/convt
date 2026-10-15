@@ -3,7 +3,7 @@ import type { UsageDay } from "#/lib/types";
 
 import { cx } from "./ui";
 
-/** Bars per day. Days in the same month as the last day are drawn in green. */
+/** Bars per day. Days in the same month as the last day are drawn in blue. */
 export function UsageChart({ days }: { days: UsageDay[] }) {
   if (days.length === 0) {
     return <p className="text-[13px]/4 text-ink-3">No conversions in the last 30 days.</p>;
@@ -35,7 +35,7 @@ export function UsageChart({ days }: { days: UsageDay[] }) {
             style={{ height: `${Math.round((day.conversions / max) * 100)}%` }}
             className={cx(
               "min-w-0 flex-1 rounded-t-[3px]",
-              day.date.startsWith(currentMonth) ? "bg-green" : "bg-bar",
+              day.date.startsWith(currentMonth) ? "bg-brand" : "bg-bar",
             )}
           />
         ))}

@@ -57,7 +57,7 @@ fn progress(progress: &Progress, offer: &pack::Offer, p: &Palette) -> Div {
         .flex()
         .flex_col()
         .gap(px(6.))
-        .child(theme::progress(fraction, p.track, p.green))
+        .child(theme::progress(fraction, p.track, p.brand))
         .child(
             div()
                 .id("pack-progress")
@@ -296,7 +296,7 @@ pub(super) fn installed_notice(p: &Palette) -> impl IntoElement + use<> {
         .test_support()
         .aria_label("Document support is installed. Pick a format to convert.")
         .child(
-            text(12., 16., p.green)
+            text(12., 16., p.brand)
                 .font_weight(FontWeight::MEDIUM)
                 .child("Document support is installed. Pick a format to convert."),
         )
@@ -331,7 +331,7 @@ pub(super) fn settings_row(
         (PackPhase::Failed(f), _) if f.kind != FailureKind::Cancelled => {
             (pack::plain_failure(f, &pack.offer).0, p.error)
         }
-        (_, Status::Installed(_)) => ("Installed".to_string(), p.green),
+        (_, Status::Installed(_)) => ("Installed".to_string(), p.brand),
         (_, Status::Rejected(reason)) => (pack::plain_reason(reason).to_string(), p.error),
         _ if system => (
             format!("Using LibreOffice on {}", theme::this_machine()),

@@ -117,7 +117,7 @@ function FormatRow({ format }: { format: Format }) {
         <h3 className="flex items-center gap-2 text-[15px]/5 font-medium">
           {format.name}
           {packFormats.has(format.id) && (
-            <span className="rounded-[5px] bg-green-tint px-1.5 py-px font-mono text-[10.5px]/4 font-normal text-[#157f4a] dark:text-green">
+            <span className="rounded-[5px] bg-brand-tint px-1.5 py-px font-mono text-[10.5px]/4 font-normal text-[#3462ce] dark:text-brand">
               pack
             </span>
           )}
@@ -147,12 +147,12 @@ function FormatRow({ format }: { format: Format }) {
 
 function DocumentPack() {
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-green-tint/60 px-5 py-4 shadow-[inset_0_0_0_1px_var(--green-line)] md:flex-row md:gap-6">
+    <div className="flex flex-col gap-2 rounded-xl bg-brand-tint/60 px-5 py-4 shadow-[inset_0_0_0_1px_var(--brand-line)] md:flex-row md:gap-6">
       <h3 className="shrink-0 text-sm/5 font-semibold md:w-[196px]">The document pack</h3>
       <div className="flex flex-col gap-2 text-sm/[21px] text-ink-2">
         <p>
           Word, Excel and PowerPoint files and their open formats (marked{" "}
-          <span className="font-mono text-xs text-[#157f4a] dark:text-green">pack</span>) convert
+          <span className="font-mono text-xs text-[#3462ce] dark:text-brand">pack</span>) convert
           through LibreOffice, which comes as an optional download instead of inside every install.
           The first time you pick one of these files, convt offers to install document support. It
           downloads once, only after you click Install, and from then on documents convert offline

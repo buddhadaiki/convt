@@ -246,7 +246,7 @@ impl MainView {
                     } else {
                         "Change"
                     },
-                    p.green,
+                    p.brand,
                     12.,
                 )
                 .flex_shrink_0()
@@ -287,16 +287,16 @@ impl MainView {
                                 .px(px(8.))
                                 .py(px(2.))
                                 .rounded(px(5.))
-                                .bg(if on { p.green_tint } else { p.chip })
+                                .bg(if on { p.brand_tint } else { p.chip })
                                 .border_1()
-                                .border_color(if on { p.green } else { p.chip_border })
+                                .border_color(if on { p.brand } else { p.chip_border })
                                 .on_click(move |_, _, cx| {
                                     app.update(cx, |s, cx| {
                                         s.update_settings(|s| s.defaults.set(kind, to), cx)
                                     })
                                 })
                                 .child(
-                                    text(12., 16., if on { p.green } else { p.text })
+                                    text(12., 16., if on { p.brand } else { p.text })
                                         .child(to.name),
                                 )
                             }),
@@ -499,9 +499,9 @@ fn finder_setup_card(p: &Palette) -> impl IntoElement {
         .mb(px(8.))
         .p(px(14.))
         .rounded(px(8.))
-        .bg(p.green_tint)
+        .bg(p.brand_tint)
         .border_1()
-        .border_color(p.green)
+        .border_color(p.brand)
         .child(
             text(13., 16., p.text)
                 .font_weight(FontWeight::SEMIBOLD)
@@ -529,7 +529,7 @@ fn trial_card(state: &State, p: &Palette) -> Option<impl IntoElement + use<>> {
             "Trial",
             format!("{TRIAL_DAYS} days"),
             0.,
-            p.green,
+            p.brand,
             format!("Buy license · {LICENSE_PRICE}"),
         ),
         State::Trial { days_left, .. } => (
@@ -539,7 +539,7 @@ fn trial_card(state: &State, p: &Palette) -> Option<impl IntoElement + use<>> {
                 n => format!("{n} days left"),
             },
             (TRIAL_DAYS - days_left) as f32 / TRIAL_DAYS as f32,
-            p.green,
+            p.brand,
             format!("Buy license · {LICENSE_PRICE}"),
         ),
         State::TrialEnded => (
@@ -578,7 +578,7 @@ fn trial_card(state: &State, p: &Palette) -> Option<impl IntoElement + use<>> {
             )
             .child(theme::progress(used, p.track, color))
             .child(
-                text_button("trial-buy", link, p.green, 12.)
+                text_button("trial-buy", link, p.brand, 12.)
                     .font_weight(FontWeight::MEDIUM)
                     .on_click(|_, _, cx| cx.open_url(BUY_URL)),
             ),
@@ -655,7 +655,7 @@ fn active_row(
         Status::Running(f) => Some(div().w(px(360.)).max_w_full().child(theme::progress(
             f.unwrap_or(0.),
             p.track,
-            p.green,
+            p.brand,
         ))),
         _ => None,
     };
@@ -715,7 +715,7 @@ fn record_row(record: &Record, app: &Entity<AppState>, p: &Palette) -> impl Into
                 });
                 (
                     format!("Done · {}", Local::at(record.finished_at).time()),
-                    p.green,
+                    p.brand,
                     sizes.map(|s| mono(11., 14., p.secondary).child(s)),
                     show,
                 )
@@ -816,7 +816,7 @@ impl Render for MainView {
             .bg(p.window)
             .font_family(theme::SANS)
             .text_color(p.text)
-            .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.green_tint))
+            .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.brand_tint))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 this.add(paths.paths(), cx);
             }))

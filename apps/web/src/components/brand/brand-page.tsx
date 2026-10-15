@@ -80,10 +80,10 @@ const palettes: Palette[] = [
     page: "#0A0B0B",
     mark: "convt-mark-on-dark",
     colors: [
-      { name: "Ink", hex: "#EDEFEE", role: "Source square and wordmark" },
-      { name: "Green", hex: "#46D08B", role: "Converted square, top" },
-      { name: "Deep green", hex: "#1FA463", role: "Converted square, bottom" },
-      { name: "Overlap", hex: "#A6F0C8", role: "Where the two meet" },
+      { name: "Ink", hex: "#EEEEF0", role: "Source square and wordmark" },
+      { name: "Blue", hex: "#6595FF", role: "Converted square, top" },
+      { name: "Deep blue", hex: "#4C82FF", role: "Converted square, bottom" },
+      { name: "Overlap", hex: "#A5C3FF", role: "Where the two meet" },
     ],
   },
   {
@@ -93,9 +93,9 @@ const palettes: Palette[] = [
     mark: "convt-mark-on-light",
     colors: [
       { name: "Ink", hex: "#0A0A0A", role: "Source square and wordmark" },
-      { name: "Green", hex: "#1FB36C", role: "Converted square, top" },
-      { name: "Deep green", hex: "#127A47", role: "Converted square, bottom" },
-      { name: "Overlap", hex: "#0B5C34", role: "Where the two meet" },
+      { name: "Blue", hex: "#6092FF", role: "Converted square, top" },
+      { name: "Deep blue", hex: "#325EC7", role: "Converted square, bottom" },
+      { name: "Overlap", hex: "#244698", role: "Where the two meet" },
     ],
   },
 ];
@@ -190,7 +190,7 @@ function Intro() {
             href="/brand/convt-brand.zip"
             download
             className={cx(
-              "group bg-land-green inline-flex items-center gap-2 rounded-[10px] px-[18px] py-[11px] text-[15px]/[18px] font-medium whitespace-nowrap text-white shadow-land-primary transition-[filter,scale] duration-150 ease-out hover:brightness-110 motion-safe:active:scale-[0.97]",
+              "group bg-land-brand inline-flex items-center gap-2 rounded-[10px] px-[18px] py-[11px] text-[15px]/[18px] font-medium whitespace-nowrap text-white shadow-land-primary transition-[filter,scale] duration-150 ease-out hover:brightness-110 motion-safe:active:scale-[0.97]",
               focusRing,
             )}
           >
@@ -237,9 +237,9 @@ function Construction() {
           aria-hidden="true"
         >
           <defs>
-            <linearGradient id="construction-green" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#46d08b" />
-              <stop offset="1" stopColor="#1fa463" />
+            <linearGradient id="construction-brand" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#6595ff" />
+              <stop offset="1" stopColor="#4c82ff" />
             </linearGradient>
             <clipPath id="construction-source">
               <rect x={2 * u} y={2 * u} width={19 * u} height={19 * u} rx={5 * u} />
@@ -260,7 +260,7 @@ function Construction() {
             width={19 * u}
             height={19 * u}
             rx={5 * u}
-            fill="#edefee"
+            fill="#eeeef0"
           />
           <rect
             className="brand-result"
@@ -269,7 +269,7 @@ function Construction() {
             width={19 * u}
             height={19 * u}
             rx={5 * u}
-            fill="url(#construction-green)"
+            fill="url(#construction-brand)"
           />
           <rect
             className="brand-overlap"
@@ -278,10 +278,10 @@ function Construction() {
             width={19 * u}
             height={19 * u}
             rx={5 * u}
-            fill="#a6f0c8"
+            fill="#a5c3ff"
             clipPath="url(#construction-source)"
           />
-          <g fill="none" stroke="#46d08b" strokeWidth="1.5">
+          <g fill="none" stroke="#6595ff" strokeWidth="1.5">
             {/* The corner radius, then 19 above, 19 on the right and the 9-unit offset below. */}
             <circle
               className="brand-note"
@@ -307,7 +307,7 @@ function Construction() {
               d={`M${2 * u} ${size + 14}v12M${11 * u} ${size + 14}v12M${2 * u} ${size + 20}H${11 * u}`}
             />
           </g>
-          <g className="font-mono" fontSize="13" fill="#c4c9c6">
+          <g className="font-mono" fontSize="13" fill="#c5c8cc">
             <text
               className="brand-note"
               style={note(0)}
@@ -339,7 +339,7 @@ function Construction() {
               x={size}
               y={size + 44}
               textAnchor="end"
-              fill="#848c88"
+              fill="#868a91"
             >
               32 × 32 grid
             </text>
@@ -507,8 +507,8 @@ function BackgroundSwitch({
       className={cx(
         "grid grid-cols-2 rounded-lg p-0.5 transition-[background-color,box-shadow] duration-300 ease-out",
         onDark
-          ? "bg-[#161918] shadow-[0_0_0_1px_#2e3331]"
-          : "bg-[#f3f4f3] shadow-[0_0_0_1px_#e0e3e1]",
+          ? "bg-[#17181b] shadow-[0_0_0_1px_#2e3331]"
+          : "bg-[#f3f4f5] shadow-[0_0_0_1px_#e0e3e1]",
         className,
       )}
     >
@@ -518,7 +518,7 @@ function BackgroundSwitch({
         className={cx(
           "brand-thumb absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-md",
           onDark
-            ? "translate-x-0 bg-[#2a2f2d]"
+            ? "translate-x-0 bg-[#2c2e32]"
             : "translate-x-full bg-white shadow-[0_0_0_1px_#e0e3e1,0_1px_2px_#0000000f]",
         )}
       />
@@ -550,10 +550,10 @@ function BackgroundSwitch({
               onDark
                 ? selected
                   ? "text-white"
-                  : "text-[#a1a6a3] hover:text-white"
+                  : "text-[#a2a5a9] hover:text-white"
                 : selected
                   ? "text-[#0a0a0a]"
-                  : "text-[#5c615e] hover:text-[#0a0a0a]",
+                  : "text-[#5d6064] hover:text-[#0a0a0a]",
             )}
           >
             {option}
@@ -592,8 +592,8 @@ function ButtonGroup({
   );
 }
 
-/** The focus outline on white surfaces, where the light green is too faint. */
-const focusOnLight = "focus-visible:outline-[#127a47]!";
+/** The focus outline on white surfaces, where the light blue is too faint. */
+const focusOnLight = "focus-visible:outline-[#325ec7]!";
 
 const pressable =
   "transition-[background-color,color,scale] duration-150 ease-out motion-safe:active:scale-[0.96]";
@@ -733,7 +733,7 @@ function CopyButton({
         // Every state shares one cell, so the button keeps its width.
         <span className="grid place-items-center" aria-hidden="true">
           <Swap show={state === "idle"}>{children}</Swap>
-          <Swap show={state === "copied"} className="text-green">
+          <Swap show={state === "copied"} className="text-brand">
             <CheckGlyph />
           </Swap>
           <Swap show={state === "failed"}>
@@ -746,7 +746,7 @@ function CopyButton({
             <Swap show={state === "idle"}>
               <CopyGlyph />
             </Swap>
-            <Swap show={state === "copied"} className="text-green">
+            <Swap show={state === "copied"} className="text-brand">
               <CheckGlyph />
             </Swap>
             <Swap show={state === "failed"}>
@@ -770,7 +770,7 @@ function Colors() {
         <SectionHeading
           id="colors-title"
           title="Colors"
-          body="Ink for the file you have, green for the file you get, and a third shade where they overlap. Each background has its own set. Click a color to copy it."
+          body="Ink for the file you have, blue for the file you get, and a third shade where they overlap. Each background has its own set. Click a color to copy it."
         />
         <div className="grid gap-4 lg:grid-cols-2">
           {palettes.map((palette, i) => (
@@ -786,7 +786,7 @@ function PalettePanel({ palette, index }: { palette: Palette; index: number }) {
   const dark = palette.background === "dark";
   const [, top, bottom] = palette.colors;
   const gradient = `linear-gradient(180deg, ${top.hex} 0%, ${bottom.hex} 100%)`;
-  const muted = dark ? "text-land-muted" : "text-[#5c615e]";
+  const muted = dark ? "text-land-muted" : "text-[#5d6064]";
   return (
     <div
       data-reveal
@@ -827,7 +827,7 @@ function PalettePanel({ palette, index }: { palette: Palette; index: number }) {
         dark={dark}
         className={cx(
           "border-t px-6 py-4 sm:px-8",
-          dark ? "border-line hover:bg-[#111312]" : "border-[#eef0ef] hover:bg-[#f7f8f7]",
+          dark ? "border-line hover:bg-[#121214]" : "border-[#efeff1] hover:bg-[#f7f8f9]",
         )}
         swatch={
           <span
@@ -859,7 +859,7 @@ function ColorRow({
       text={hex}
       label={`${name}, ${hex}, ${role}. Copy hex`}
       dark={dark}
-      className={cx("rounded-xl px-2.5 py-2", dark ? "hover:bg-[#161918]" : "hover:bg-[#f3f4f3]")}
+      className={cx("rounded-xl px-2.5 py-2", dark ? "hover:bg-[#17181b]" : "hover:bg-[#f3f4f5]")}
       swatch={
         <span
           className={cx(
@@ -873,7 +873,7 @@ function ColorRow({
     >
       <span className="text-[14px]/[20px] font-medium">{name}</span>
       <span
-        className={cx("truncate text-[13px]/[18px]", dark ? "text-land-muted" : "text-[#5c615e]")}
+        className={cx("truncate text-[13px]/[18px]", dark ? "text-land-muted" : "text-[#5d6064]")}
       >
         {role}
       </span>
@@ -906,7 +906,7 @@ function CopyRow({
     <>
       <Swap
         show={state === "copied"}
-        className={cx("inline-flex items-center gap-1", dark ? "text-green" : "text-[#127a47]")}
+        className={cx("inline-flex items-center gap-1", dark ? "text-brand" : "text-[#325ec7]")}
       >
         <CheckGlyph />
         {copiedLabel}
@@ -934,7 +934,7 @@ function CopyRow({
             aria-hidden="true"
             className={cx(
               "grid justify-items-end font-mono text-[12px]/[16px]",
-              dark ? "text-ink-2" : "text-[#3d413f]",
+              dark ? "text-ink-2" : "text-[#3e4043]",
             )}
           >
             <Swap show={state === "idle"}>{trailing}</Swap>
@@ -1014,7 +1014,7 @@ function CopyText({
       <CopyFailed show={state === "failed"} dark={dark} className="justify-self-end" />
       <Swap
         show={state === "copied"}
-        className={cx("justify-self-end", dark ? "text-green" : "text-[#127a47]")}
+        className={cx("justify-self-end", dark ? "text-brand" : "text-[#325ec7]")}
       >
         Copied
       </Swap>
@@ -1058,7 +1058,7 @@ function Typography() {
                 <span className="text-land-muted">$ </span>convt miso.heic --to webp
               </p>
               <p className="text-land-muted">
-                miso.webp <span className="text-green">612 KB</span>
+                miso.webp <span className="text-brand">612 KB</span>
               </p>
             </div>
           </TypeCard>
@@ -1090,7 +1090,7 @@ function TypeCard({
         <a
           href={href}
           className={cx(
-            "shrink-0 rounded-sm text-[14px]/[18px] text-green underline-offset-4 hover:underline",
+            "shrink-0 rounded-sm text-[14px]/[18px] text-brand underline-offset-4 hover:underline",
             focusRing,
           )}
         >
@@ -1106,7 +1106,7 @@ const donts: { label: string; transform?: string; filter?: string }[] = [
   { label: "Don't recolor it", filter: "hue-rotate(150deg) saturate(1.4)" },
   { label: "Don't stretch it", transform: "scaleX(1.45)" },
   { label: "Don't flip it", transform: "scaleX(-1)" },
-  { label: "Don't add effects", filter: "drop-shadow(0 0 16px #46d08b) blur(0.6px)" },
+  { label: "Don't add effects", filter: "drop-shadow(0 0 16px #6595ff) blur(0.6px)" },
 ];
 
 function Usage() {

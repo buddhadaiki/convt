@@ -108,7 +108,7 @@ export function TextLink({ className, ...props }: React.ComponentProps<"a">) {
     <a
       {...props}
       className={cx(
-        "rounded-sm font-medium text-[#157f4a] dark:text-green underline-offset-2 hover:underline",
+        "rounded-sm font-medium text-[#3462ce] dark:text-brand underline-offset-2 hover:underline",
         focusRing,
         className,
       )}

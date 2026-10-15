@@ -26,7 +26,7 @@ export function UnpublishedPage({ title }: { title: string }) {
         <Link
           to="/"
           className={cx(
-            "self-start rounded-sm text-[13px]/4 font-medium text-green hover:underline hover:underline-offset-2",
+            "self-start rounded-sm text-[13px]/4 font-medium text-brand hover:underline hover:underline-offset-2",
             focusRing,
           )}
         >

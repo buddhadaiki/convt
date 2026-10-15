@@ -78,7 +78,7 @@ await writeFile(
 );
 await writeFile(
   join(fixtures, "icon.svg"),
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#127a47"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#325ec7"/></svg>',
 );
 // HEIC brand header: Chrome can't decode HEIC, which is all this needs to prove.
 await writeFile(

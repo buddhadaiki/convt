@@ -488,8 +488,8 @@ impl QuickView {
                 .rounded(px(8.))
                 .map(|d| {
                     if on {
-                        d.bg(p.green_tint)
-                            .shadow(vec![theme::inset_ring(p.green, 1.5)])
+                        d.bg(p.brand_tint)
+                            .shadow(vec![theme::inset_ring(p.brand, 1.5)])
                     } else {
                         d.shadow(vec![theme::inset_ring(p.card_border, 1.)])
                     }
@@ -503,7 +503,7 @@ impl QuickView {
                         .child(format.name),
                 )
                 .child(
-                    text(11., 14., if on { p.green } else { p.secondary })
+                    text(11., 14., if on { p.brand } else { p.secondary })
                         .truncate()
                         .child(blurb(format, video_input)),
                 )
@@ -544,9 +544,9 @@ impl QuickView {
                             .px(px(8.))
                             .py(px(2.))
                             .rounded(px(5.))
-                            .bg(if on { p.green_tint } else { p.chip })
+                            .bg(if on { p.brand_tint } else { p.chip })
                             .border_1()
-                            .border_color(if on { p.green } else { p.chip_border })
+                            .border_color(if on { p.brand } else { p.chip_border })
                             .tooltip(move |window, cx| {
                                 Tooltip::new(about.clone()).build(window, cx)
                             })
@@ -554,7 +554,7 @@ impl QuickView {
                                 let _ =
                                     weak.update(cx, |this, cx| this.pick_preset(&name, window, cx));
                             })
-                            .child(text(12., 16., if on { p.green } else { p.text }).child(label))
+                            .child(text(12., 16., if on { p.brand } else { p.text }).child(label))
                         })),
                 )
         });
@@ -817,7 +817,7 @@ impl QuickView {
                             .child(text(13., 16., p.text).truncate().child(place)),
                     )
                     .child(
-                        text_button("change-folder", "Change", p.green, 12.)
+                        text_button("change-folder", "Change", p.brand, 12.)
                             .pl(px(10.))
                             .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
                     )
@@ -856,13 +856,13 @@ impl QuickView {
                 Status::Cancelled => "Cancelled".into(),
             };
             let color = match entry.status {
-                Status::Done(_) => p.green,
+                Status::Done(_) => p.brand,
                 Status::Failed(_) => p.error,
                 _ => p.secondary,
             };
             let bar = match entry.status {
-                Status::Running(f) => Some(theme::progress(f.unwrap_or(0.), p.track, p.green)),
-                Status::Queued => Some(theme::progress(0., p.track, p.green)),
+                Status::Running(f) => Some(theme::progress(f.unwrap_or(0.), p.track, p.brand)),
+                Status::Queued => Some(theme::progress(0., p.track, p.brand)),
                 _ => None,
             };
             div()

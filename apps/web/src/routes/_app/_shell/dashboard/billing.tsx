@@ -134,7 +134,7 @@ function BillingPage() {
                   tone={
                     plan.status === "canceled" || plan.status === "past_due" || plan.cancelsOn
                       ? "neutral"
-                      : "green"
+                      : "brand"
                   }
                 >
                   {isDesktop
@@ -246,7 +246,7 @@ function BillingPage() {
                       <button
                         type="button"
                         onClick={() => setConfirm("cancel")}
-                        className="cursor-pointer rounded-lg px-3 py-[7px] text-[13px]/4 text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-green"
+                        className="cursor-pointer rounded-lg px-3 py-[7px] text-[13px]/4 text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-brand"
                       >
                         {plan.status === "trialing" ? "Cancel trial" : "Cancel plan"}
                       </button>
@@ -284,7 +284,7 @@ function BillingPage() {
                 <p id="plan-title" className="text-[22px]/7 font-semibold tracking-[-0.02em]">
                   API, pay per conversion
                 </p>
-                <Badge tone={billing.api.state === "enrolled" ? "green" : "neutral"}>
+                <Badge tone={billing.api.state === "enrolled" ? "brand" : "neutral"}>
                   {apiLabel[billing.api.state]}
                 </Badge>
               </div>
@@ -305,13 +305,13 @@ function BillingPage() {
           {(plan || noPlan) && apiLabel[billing.api.state] ? (
             <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-line pt-3.5">
               <span className="text-[13px]/4 font-medium">API, pay per conversion</span>
-              <Badge size="sm" tone={billing.api.state === "enrolled" ? "green" : "neutral"}>
+              <Badge size="sm" tone={billing.api.state === "enrolled" ? "brand" : "neutral"}>
                 {apiLabel[billing.api.state]}
               </Badge>
               <span className="text-[13px]/4 text-ink-2">{apiLine}</span>
               <a
                 href="/dashboard/api"
-                className="text-[13px]/4 font-medium text-green hover:underline hover:underline-offset-2"
+                className="text-[13px]/4 font-medium text-brand hover:underline hover:underline-offset-2"
               >
                 Manage
               </a>

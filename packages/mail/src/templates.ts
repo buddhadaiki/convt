@@ -35,8 +35,8 @@ export function activationUrl(token: string): string {
 
 /** Mail clients that honor prefers-color-scheme get the site's dark colors. */
 const darkCss =
-  "@media (prefers-color-scheme: dark){body{background:#141414 !important;color:#ededeb !important}" +
-  ".key{border-color:#3a3a38 !important;background:#1d1d1c !important}a{color:#4cc38a !important}}";
+  "@media (prefers-color-scheme: dark){body{background:#141414 !important;color:#ecedef !important}" +
+  ".key{border-color:#393a3c !important;background:#1c1d1e !important}a{color:#5f91ff !important}}";
 
 type Block =
   | { p: string }
@@ -55,12 +55,12 @@ function render(subject: string, blocks: Block[]): Rendered {
     } else if ("key" in b) {
       text.push(b.key);
       html.push(
-        `<p class="key" style="margin:0 0 14px;padding:12px;border:1px solid #d9d9d6;border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">${escapeHtml(b.key)}</p>`,
+        `<p class="key" style="margin:0 0 14px;padding:12px;border:1px solid #d7d9dc;border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all">${escapeHtml(b.key)}</p>`,
       );
     } else if ("link" in b) {
       text.push(`${b.link.label}: ${b.link.href}`);
       html.push(
-        `<p style="margin:0 0 14px"><a href="${escapeHtml(b.link.href)}" style="color:#1a7f4b;font-weight:600">${escapeHtml(b.link.label)}</a></p>`,
+        `<p style="margin:0 0 14px"><a href="${escapeHtml(b.link.href)}" style="color:#3663cd;font-weight:600">${escapeHtml(b.link.label)}</a></p>`,
       );
     } else {
       text.push(b.list.map((l) => `- ${l}`).join("\n"));
@@ -72,7 +72,7 @@ function render(subject: string, blocks: Block[]): Rendered {
   return {
     subject,
     text: `${text.join("\n\n")}\n`,
-    html: `<!doctype html><html><head><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><style>${darkCss}</style></head><body style="margin:0;padding:24px;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#1c1c1a;background:#ffffff"><div style="max-width:520px"><p style="margin:0 0 20px;font-size:17px;font-weight:600;letter-spacing:-0.02em">convt</p>${html.join("")}</div></body></html>`,
+    html: `<!doctype html><html><head><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><style>${darkCss}</style></head><body style="margin:0;padding:24px;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:20px;color:#1b1c1e;background:#ffffff"><div style="max-width:520px"><p style="margin:0 0 20px;font-size:17px;font-weight:600;letter-spacing:-0.02em">convt</p>${html.join("")}</div></body></html>`,
   };
 }
 

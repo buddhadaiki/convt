@@ -1,6 +1,6 @@
 # convt brand
 
-The mark is two overlapping rounded squares: the file you have (ink) and the file you get (green). The overlap, in a lighter green, is where the conversion happens.
+The mark is two overlapping rounded squares: the file you have (ink) and the file you get (blue). The overlap, in a third shade, is where the conversion happens.
 
 | File                                        | Use                                                                              |
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -16,9 +16,9 @@ The wordmark is "convt" in lowercase Geist SemiBold with -0.02em tracking. Besid
 
 | Role                            | On dark                | On light               |
 | ------------------------------- | ---------------------- | ---------------------- |
-| Source square (ink)             | `#edefee`              | `#0a0a0a`              |
-| Converted square, top to bottom | `#46d08b` to `#1fa463` | `#1fb36c` to `#127a47` |
-| Overlap                         | `#a6f0c8`              | `#0b5c34`              |
+| Source square (ink)             | `#eeeef0`              | `#0a0a0a`              |
+| Converted square, top to bottom | `#6595ff` to `#4c82ff` | `#6092ff` to `#325ec7` |
+| Overlap                         | `#a5c3ff`              | `#244698`              |
 | Page                            | `#0a0b0b`              | `#ffffff`              |
 
 The site defines these as `--mark-*` tokens in `apps/web/src/styles.css`; `apps/web/src/components/logo.tsx` draws the mark from them.

@@ -155,7 +155,7 @@ function SettingsPage() {
               autoComplete="name"
               defaultValue={settings.account.name}
               onBlur={(event) => void saveNameValue(event.currentTarget.value)}
-              className="h-9 w-full rounded-lg bg-raised px-3 text-[13px]/4 text-ink shadow-input outline-none focus-visible:ring-2 focus-visible:ring-green sm:w-[360px]"
+              className="h-9 w-full rounded-lg bg-raised px-3 text-[13px]/4 text-ink shadow-input outline-none focus-visible:ring-2 focus-visible:ring-brand sm:w-[360px]"
             />
           </form>
           <EmailRow
@@ -208,7 +208,7 @@ function SettingsPage() {
                 >
                   {method.identity ?? "Not connected"}
                 </td>
-                <td role="cell" className={cx(stacked.cell, stacked.meta, "w-[160px] text-green")}>
+                <td role="cell" className={cx(stacked.cell, stacked.meta, "w-[160px] text-brand")}>
                   {method.identity ? "Connected" : null}
                 </td>
                 <td role="cell" className={cx(stacked.cell, stacked.action, "w-20 text-right")}>
@@ -476,7 +476,7 @@ function SignInAgain() {
         window.location.assign("/sign-in?redirect=%2Faccount");
       }}
       className={cx(
-        "rounded-sm text-[13px]/4 font-medium text-green hover:underline hover:underline-offset-2",
+        "rounded-sm text-[13px]/4 font-medium text-brand hover:underline hover:underline-offset-2",
         focusRing,
       )}
     >
@@ -561,7 +561,7 @@ function EmailRow({
               autoComplete="email"
               value={newEmail}
               onChange={(event) => setNewEmail(event.target.value)}
-              className="h-9 w-full rounded-lg bg-raised px-3 text-[13px]/4 text-ink shadow-input outline-none focus-visible:ring-2 focus-visible:ring-green sm:w-[360px]"
+              className="h-9 w-full rounded-lg bg-raised px-3 text-[13px]/4 text-ink shadow-input outline-none focus-visible:ring-2 focus-visible:ring-brand sm:w-[360px]"
             />
             <SecondaryButton type="submit" disabled={busy}>
               Send code

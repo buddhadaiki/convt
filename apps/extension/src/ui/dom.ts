@@ -61,7 +61,7 @@ export const icons = {
   external: ["M14 5h5v5", "M19 5l-8 8", "M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"],
 } as const;
 
-/** The convt mark: the source file (ink) and the converted file (green) overlapping. */
+/** The convt mark: the source file (ink) and the converted file (blue) overlapping. */
 export function mark(size: number): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("width", String(size));
@@ -74,14 +74,14 @@ export function mark(size: number): SVGSVGElement {
   clip.id = `${id}-clip`;
   clip.append(rect(2));
   const gradient = document.createElementNS(SVG_NS, "linearGradient");
-  gradient.id = `${id}-green`;
+  gradient.id = `${id}-brand`;
   gradient.setAttribute("x1", "0");
   gradient.setAttribute("y1", "0");
   gradient.setAttribute("x2", "0");
   gradient.setAttribute("y2", "1");
   for (const [offset, color] of [
-    ["0", "var(--mark-green-top)"],
-    ["1", "var(--mark-green-bottom)"],
+    ["0", "var(--mark-brand-top)"],
+    ["1", "var(--mark-brand-bottom)"],
   ] as const) {
     const stop = document.createElementNS(SVG_NS, "stop");
     stop.setAttribute("offset", offset);
@@ -92,7 +92,7 @@ export function mark(size: number): SVGSVGElement {
   const source = rect(2);
   source.setAttribute("fill", "var(--mark-source)");
   const converted = rect(11);
-  converted.setAttribute("fill", `url(#${id}-green)`);
+  converted.setAttribute("fill", `url(#${id}-brand)`);
   const overlap = rect(11);
   overlap.setAttribute("fill", "var(--mark-overlap)");
   overlap.setAttribute("clip-path", `url(#${id}-clip)`);

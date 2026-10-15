@@ -21,8 +21,8 @@ body {
   gap: 56px;
   padding: 0 72px;
   background:
-    radial-gradient(700px 500px at 85% 110%, rgb(31 164 99 / 28%), transparent 70%), #0a0b0b;
-  color: #edefee;
+    radial-gradient(700px 500px at 85% 110%, rgb(76 130 255 / 28%), transparent 70%), #0a0b0b;
+  color: #eeeef0;
   font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -45,7 +45,7 @@ h1 {
 }
 p {
   margin: 18px 0 0;
-  color: #a1a6a3;
+  color: #a2a5a9;
   font-size: 19px;
   line-height: 29px;
   text-wrap: pretty;

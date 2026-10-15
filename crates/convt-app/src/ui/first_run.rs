@@ -263,8 +263,8 @@ impl FirstRunView {
                 .rounded(px(10.))
                 .map(|d| {
                     if on {
-                        d.bg(p.green_tint)
-                            .shadow(vec![theme::inset_ring(p.green, 1.5)])
+                        d.bg(p.brand_tint)
+                            .shadow(vec![theme::inset_ring(p.brand, 1.5)])
                     } else {
                         d.shadow(vec![theme::inset_ring(p.card_border, 1.)])
                     }
@@ -406,7 +406,7 @@ impl Render for FirstRunView {
             .gap(px(4.))
             .children((1..=Step::count()).map(|i| {
                 div().w(px(20.)).h(px(4.)).rounded(px(2.)).bg(if i <= n {
-                    p.green
+                    p.brand
                 } else {
                     p.step_off
                 })
@@ -527,7 +527,7 @@ impl Render for FirstRunView {
                     })
                     .children(not_covered.is_some().then(|| {
                         div().flex().child(
-                            text_button("first-run-renew", "Renew", p.green, 12.)
+                            text_button("first-run-renew", "Renew", p.brand, 12.)
                                 .on_click(|_, _, cx| cx.open_url(BUY_URL)),
                         )
                     })),

@@ -2,12 +2,12 @@
   <!-- Same geometry and colors as the Mark component in src/components/logo.tsx. -->
   <style>
     .source { fill: #0a0a0a }
-    .top { stop-color: #1fb36c } .bottom { stop-color: #127a47 }
-    .overlap { fill: #0b5c34 }
+    .top { stop-color: #6092ff } .bottom { stop-color: #325ec7 }
+    .overlap { fill: #244698 }
     @media (prefers-color-scheme: dark) {
-      .source { fill: #edefee }
-      .top { stop-color: #46d08b } .bottom { stop-color: #1fa463 }
-      .overlap { fill: #a6f0c8 }
+      .source { fill: #eeeef0 }
+      .top { stop-color: #6595ff } .bottom { stop-color: #4c82ff }
+      .overlap { fill: #a5c3ff }
     }
   </style>
   <defs>

@@ -29,7 +29,7 @@ export function Nav({
   const onDownload = path === routes.download;
   const showDownloadCta = !onDownload && signedIn === null;
   const links = headerLinks.filter((link) => {
-    // Signed-out visitors get the green Download button; signed-in visitors get
+    // Signed-out visitors get the blue Download button; signed-in visitors get
     // the text link. Never both, and never on /download itself.
     if (link.href === routes.download) return signedIn != null && !onDownload;
     return true;

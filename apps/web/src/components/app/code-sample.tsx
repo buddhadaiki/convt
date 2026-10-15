@@ -108,8 +108,8 @@ export function CodeSample() {
                 }}
                 onKeyDown={(e) => onKeyDown(e, index)}
                 className={cx(
-                  "cursor-pointer rounded-md px-2.5 py-1.5 text-xs/4 font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#3fcb84]",
-                  selected ? "bg-white/8 text-[#edefee]" : "text-[#8a8f8c] hover:text-[#edefee]",
+                  "cursor-pointer rounded-md px-2.5 py-1.5 text-xs/4 font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#5f91ff]",
+                  selected ? "bg-white/8 text-[#eeeef0]" : "text-[#8b8e92] hover:text-[#eeeef0]",
                 )}
               >
                 {sample.label}
@@ -120,7 +120,7 @@ export function CodeSample() {
         <button
           type="button"
           onClick={copy}
-          className="flex cursor-pointer items-center gap-1.5 rounded-sm text-xs/4 font-medium text-[#8a8f8c] outline-none hover:text-[#edefee] focus-visible:ring-2 focus-visible:ring-[#3fcb84]"
+          className="flex cursor-pointer items-center gap-1.5 rounded-sm text-xs/4 font-medium text-[#8b8e92] outline-none hover:text-[#eeeef0] focus-visible:ring-2 focus-visible:ring-[#5f91ff]"
         >
           <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
             <path
@@ -147,7 +147,7 @@ export function CodeSample() {
         id={`${base}-panel`}
         aria-labelledby={`${base}-tab-${current.id}`}
         tabIndex={0}
-        className="min-h-[196px] overflow-x-auto px-6 py-5 outline-none focus-visible:ring-2 focus-visible:ring-[#3fcb84] focus-visible:ring-inset"
+        className="min-h-[196px] overflow-x-auto px-6 py-5 outline-none focus-visible:ring-2 focus-visible:ring-[#5f91ff] focus-visible:ring-inset"
       >
         <pre className="m-0 w-max font-mono text-xs/5 text-code-ink">
           <code>{current.code}</code>

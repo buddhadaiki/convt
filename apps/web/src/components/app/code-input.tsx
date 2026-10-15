@@ -82,7 +82,7 @@ export function CodeInput({
             fill(i, event.clipboardData.getData("text"));
           }}
           onFocus={(event) => event.currentTarget.select()}
-          className="size-11 min-w-0 rounded-lg bg-raised text-center font-mono text-xl/6 text-ink shadow-input outline-none focus:shadow-[0_0_0_2px_var(--green)] sm:size-[52px]"
+          className="size-11 min-w-0 rounded-lg bg-raised text-center font-mono text-xl/6 text-ink shadow-input outline-none focus:shadow-[0_0_0_2px_var(--brand)] sm:size-[52px]"
         />
       ))}
     </div>

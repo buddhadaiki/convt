@@ -13,7 +13,7 @@ export default defineConfig({
     "final-api": finalApi,
   },
   theme: {
-    accent: { light: "#17834d", dark: "#3fcb84" },
+    accent: { light: "#3766d4", dark: "#5f91ff" },
     radius: "md",
     mode: "system",
     fonts: { display: "geist", body: "geist", mono: "geist-mono" },

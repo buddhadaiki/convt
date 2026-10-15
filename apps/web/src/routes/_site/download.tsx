@@ -160,7 +160,7 @@ function PlatformCard({ os, current }: { os: Os; current: boolean }) {
       className={cx(
         "flex scroll-mt-6 flex-col gap-4 rounded-2xl bg-raised p-5 dark:bg-panel",
         current
-          ? "shadow-[inset_0_0_0_1px_var(--green-line)]"
+          ? "shadow-[inset_0_0_0_1px_var(--brand-line)]"
           : "shadow-[inset_0_0_0_1px_var(--line)]",
       )}
     >
@@ -169,7 +169,7 @@ function PlatformCard({ os, current }: { os: Os; current: boolean }) {
           {osNames[os]}
         </h3>
         {current && (
-          <span className="font-mono text-[11px]/3.5 text-[#157f4a] dark:text-green">
+          <span className="font-mono text-[11px]/3.5 text-[#3462ce] dark:text-brand">
             YOUR SYSTEM
           </span>
         )}

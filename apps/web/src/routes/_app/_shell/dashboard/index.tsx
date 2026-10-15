@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_app/_shell/dashboard/")({
 });
 
 const linkAction = cx(
-  "rounded-sm text-[13px]/4 font-medium text-green hover:underline hover:underline-offset-2",
+  "rounded-sm text-[13px]/4 font-medium text-brand hover:underline hover:underline-offset-2",
   focusRing,
 );
 

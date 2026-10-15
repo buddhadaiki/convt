@@ -38,7 +38,7 @@ function LicensesPage() {
                     ) : null}
                     <Badge
                       size="sm"
-                      tone={license.product === "Pro" && !license.revoked ? "green" : "neutral"}
+                      tone={license.product === "Pro" && !license.revoked ? "brand" : "neutral"}
                     >
                       {license.product.toUpperCase()}
                     </Badge>

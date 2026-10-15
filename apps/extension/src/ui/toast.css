@@ -93,7 +93,7 @@
   color: var(--ink-3);
 }
 
-/* The status chip: the landing page's green arrow, which turns into a check. */
+/* The status chip: the landing page's blue arrow, which turns into a check. */
 .chip {
   position: absolute;
   right: -5px;
@@ -103,7 +103,7 @@
   height: 20px;
   border-radius: 999px;
   box-shadow: 0 0 0 2px var(--raised);
-  background: var(--chip-green);
+  background: var(--chip-brand);
   color: #ffffff;
   transition: background-color 150ms ease-out;
 }
@@ -215,11 +215,11 @@
   scale: 0.96;
 }
 .button[data-primary="true"] {
-  background: var(--chip-green);
+  background: var(--chip-brand);
   box-shadow:
     rgb(255 255 255 / 28%) 0 1px 0 inset,
-    #157f4a 0 0 0 1px,
-    rgb(10 60 35 / 25%) 0 1px 3px;
+    #3462ce 0 0 0 1px,
+    rgb(24 47 97 / 25%) 0 1px 3px;
   color: #ffffff;
 }
 .button[data-primary="true"]:hover {
@@ -270,10 +270,10 @@
   text-wrap: pretty;
 }
 .note-link {
-  color: var(--green);
+  color: var(--brand);
   font-weight: 500;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--green) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--brand) 40%, transparent);
   text-underline-offset: 2px;
   white-space: nowrap;
   cursor: pointer;

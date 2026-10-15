@@ -2,7 +2,7 @@
 
 The convt logo, wordmark, colors and type. Every file is free to use when writing about convt or linking to it.
 
-The mark is two overlapping rounded squares: the file you have (ink) and the file you get (green). The overlap, in a third shade, is where the conversion happens.
+The mark is two overlapping rounded squares: the file you have (ink) and the file you get (blue). The overlap, in a third shade, is where the conversion happens.
 
 ## Logos
 
@@ -19,15 +19,15 @@ Each logo comes as SVG and PNG. "on-dark" versions are for dark backgrounds, "on
 
 On dark backgrounds (page `#0A0B0B`):
 
-- Ink `#EDEFEE`: source square and wordmark
-- Green `#46D08B` to Deep green `#1FA463`: converted square, top to bottom
-- Overlap `#A6F0C8`
+- Ink `#EEEEF0`: source square and wordmark
+- Blue `#6595FF` to Deep blue `#4C82FF`: converted square, top to bottom
+- Overlap `#A5C3FF`
 
 On light backgrounds (page `#FFFFFF`):
 
 - Ink `#0A0A0A`: source square and wordmark
-- Green `#1FB36C` to Deep green `#127A47`: converted square, top to bottom
-- Overlap `#0B5C34`
+- Blue `#6092FF` to Deep blue `#325EC7`: converted square, top to bottom
+- Overlap `#244698`
 
 ## Type
 

@@ -3,7 +3,7 @@
  *
  * Direction: one task, done on the page. The photo sits beside a checklist that
  * advances as the user acts, the way the landing page's file card shows a conversion.
- * Green is kept for progress and success. No upfront permission asks, no grid of
+ * The brand blue marks progress and success. No upfront permission asks, no grid of
  * equal feature cards. The menu drawing is labeled as a picture, because people try
  * to click screenshots of UI.
  */
@@ -56,8 +56,8 @@ body {
   height: 28px;
   padding: 0 12px 0 10px;
   border-radius: 999px;
-  background: var(--green-tint);
-  color: var(--green);
+  background: var(--brand-tint);
+  color: var(--brand);
   font-size: 13px;
   font-weight: 500;
 }
@@ -98,7 +98,7 @@ body {
 .photo[data-nudge="true"] {
   animation: nudge 450ms ease-in-out 2;
   box-shadow:
-    0 0 0 3px var(--green),
+    0 0 0 3px var(--brand),
     var(--shadow-float);
 }
 @keyframes nudge {
@@ -242,7 +242,7 @@ body {
   color: var(--page);
 }
 .step[data-state="done"] .step-marker {
-  background: var(--chip-green);
+  background: var(--chip-brand);
   box-shadow: none;
   color: #ffffff;
 }
@@ -320,7 +320,7 @@ body {
   font-weight: 500;
 }
 .stage[data-stage="menu-open"] .drawing {
-  border-color: var(--green);
+  border-color: var(--brand);
 }
 .done-note {
   color: var(--ink-2);
@@ -351,12 +351,12 @@ body {
 }
 .fact[data-highlight="true"]:not([data-pinned="true"]) {
   box-shadow:
-    inset 0 0 0 1px var(--green),
-    0 0 0 4px var(--green-tint);
+    inset 0 0 0 1px var(--brand),
+    0 0 0 4px var(--brand-tint);
 }
 .fact-next {
   display: none;
-  color: var(--green);
+  color: var(--brand);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -380,7 +380,7 @@ body {
   align-items: center;
   gap: 6px;
   min-height: 0;
-  color: var(--green);
+  color: var(--brand);
   font-size: 13px;
   font-weight: 500;
 }

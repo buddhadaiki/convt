@@ -8,17 +8,17 @@
       <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity=".04"/>
     </linearGradient>
-    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#46d08b"/>
-      <stop offset="1" stop-color="#1fa463"/>
+    <linearGradient id="brand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6595ff"/>
+      <stop offset="1" stop-color="#4c82ff"/>
     </linearGradient>
     <clipPath id="source"><rect x="2" y="2" width="19" height="19" rx="5"/></clipPath>
   </defs>
-  <rect x="4" y="4" width="120" height="120" rx="26.5" fill="#131615"/>
+  <rect x="4" y="4" width="120" height="120" rx="26.5" fill="#141518"/>
   <rect x="4.5" y="4.5" width="119" height="119" rx="26" fill="none" stroke="url(#edge)"/>
   <g transform="translate(20 20) scale(2.75)">
-    <rect x="2" y="2" width="19" height="19" rx="5" fill="#edefee"/>
-    <rect x="11" y="11" width="19" height="19" rx="5" fill="url(#green)"/>
-    <rect x="11" y="11" width="19" height="19" rx="5" fill="#a6f0c8" clip-path="url(#source)"/>
+    <rect x="2" y="2" width="19" height="19" rx="5" fill="#eeeef0"/>
+    <rect x="11" y="11" width="19" height="19" rx="5" fill="url(#brand)"/>
+    <rect x="11" y="11" width="19" height="19" rx="5" fill="#a5c3ff" clip-path="url(#source)"/>
   </g>
 </svg>

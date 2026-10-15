@@ -142,7 +142,7 @@ function VideoPreview() {
         </div>
       </div>
       <div className="flex w-full items-center gap-2.5 font-mono text-[10.5px]/[14px]">
-        <span className="text-[#9aa19d]">0:12</span>
+        <span className="text-[#9c9fa5]">0:12</span>
         <div className="h-[3px] flex-1 rounded-[2px] bg-[#ffffff24]">
           <div className="h-[3px] w-[28%] rounded-[2px] bg-land-accent" />
         </div>
@@ -192,7 +192,7 @@ function AudioPreview() {
   return (
     <div
       aria-hidden="true"
-      className="flex size-full flex-col justify-center gap-3.5 bg-[#0f1a14] px-6"
+      className="flex size-full flex-col justify-center gap-3.5 bg-[#121720] px-6"
     >
       <svg width="240" height="72" viewBox="0 0 240 72" className="max-w-full shrink-0">
         {[...playedBars, ...restBars].map(([y, height], i) => (
@@ -203,12 +203,12 @@ function AudioPreview() {
             width="4"
             height={height}
             rx="2"
-            fill={i < playedBars.length ? "#3fcb84" : "#2a4a39"}
+            fill={i < playedBars.length ? "#5f91ff" : "#324261"}
           />
         ))}
       </svg>
       <div className="flex items-center justify-between font-mono text-[10.5px]/[14px]">
-        <span className="text-green">voice-memo.m4a</span>
+        <span className="text-brand">voice-memo.m4a</span>
         <span className="text-land-muted">1:04</span>
       </div>
     </div>
@@ -223,13 +223,13 @@ function DocumentPreview() {
       {/* Fixed 288px stage, centered, so the stacked pages keep their layout at any card width. */}
       <div className="absolute inset-y-0 left-1/2 w-[288px] -translate-x-1/2">
         <div className="absolute top-[34px] left-[118px] flex h-[170px] w-[132px] origin-top-left rotate-6 flex-col rounded-md bg-hover p-3 shadow-[0_0_0_1px_#2e3331,0_6px_16px_#00000066]">
-          <div className="h-4 shrink-0 bg-green-tint shadow-[inset_0_-1px_0_#1e3a2a]" />
+          <div className="h-4 shrink-0 bg-brand-tint shadow-[inset_0_-1px_0_#1e3a2a]" />
           {Array.from({ length: 6 }, (_, i) => (
             <div key={i} className="h-4 shrink-0 shadow-[inset_0_-1px_0_#2a2e2d]" />
           ))}
         </div>
         <div className="absolute top-7 left-11 flex h-[176px] w-[132px] origin-top-left -rotate-4 flex-col gap-[7px] rounded-md bg-hover px-3.5 py-4 shadow-[0_0_0_1px_#2e3331,0_8px_20px_#00000080]">
-          <div className="h-[7px] w-[70%] shrink-0 rounded-[2px] bg-[#c9cecb]" />
+          <div className="h-[7px] w-[70%] shrink-0 rounded-[2px] bg-[#cacdd1]" />
           <div className="h-1.5 shrink-0" />
           {textLines.map((width, i) =>
             width ? (

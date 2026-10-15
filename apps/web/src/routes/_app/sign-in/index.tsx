@@ -82,7 +82,7 @@ function SignInPage() {
             onChange={(event) => setEmail(event.target.value)}
             aria-describedby={error ? `${errorId} ${hintId}` : hintId}
             aria-invalid={error ? true : undefined}
-            className="h-10 rounded-lg bg-raised px-3 text-sm/4.5 text-ink shadow-input outline-none placeholder:text-ink-3 focus-visible:ring-2 focus-visible:ring-green"
+            className="h-10 rounded-lg bg-raised px-3 text-sm/4.5 text-ink shadow-input outline-none placeholder:text-ink-3 focus-visible:ring-2 focus-visible:ring-brand"
           />
         </div>
         <div id={errorId} className="-mt-3 empty:hidden">

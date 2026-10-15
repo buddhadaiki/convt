@@ -29,7 +29,7 @@ pub fn sidebar_card(app: &Entity<AppState>, p: &Palette, cx: &App) -> Option<Cli
         Update::Available { version, .. } => (
             "Update available",
             format!("convt {version}"),
-            text_button("update-download", "Download", p.green, 12.),
+            text_button("update-download", "Download", p.brand, 12.),
             DOWNLOAD_URL.to_string(),
         ),
         Update::NotCovered {
@@ -39,7 +39,7 @@ pub fn sidebar_card(app: &Entity<AppState>, p: &Palette, cx: &App) -> Option<Cli
         } => (
             "New version",
             format!("convt {version} needs a renewed license"),
-            text_button("update-renew", "Renew to update", p.green, 12.),
+            text_button("update-renew", "Renew to update", p.brand, 12.),
             purchase_url.clone(),
         ),
         _ => return None,
@@ -88,7 +88,7 @@ pub fn settings_row(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
         .map_or("Not checked yet.".to_string(), |d| {
             format!("Last checked {d}.")
         });
-    let check_now = text_button("check-updates", "Check now", p.green, 12.).on_click({
+    let check_now = text_button("check-updates", "Check now", p.brand, 12.).on_click({
         let app = app.clone();
         move |_, _, cx| app.update(cx, |s, cx| s.check_updates(cx))
     });
@@ -119,9 +119,9 @@ pub fn settings_row(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
                     message.push_str(&format!(" {newer} needs a renewed license."));
                 }
                 (
-                    line("update-status", message, p.green),
+                    line("update-status", message, p.brand),
                     Some(
-                        text_button("update-download", "Download", p.green, 12.)
+                        text_button("update-download", "Download", p.brand, 12.)
                             .on_click(open(DOWNLOAD_URL.to_string())),
                     ),
                 )
@@ -149,7 +149,7 @@ pub fn settings_row(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
                     p.text,
                 ),
                 Some(
-                    text_button("update-renew", "Renew", p.green, 12.)
+                    text_button("update-renew", "Renew", p.brand, 12.)
                         .on_click(open(purchase_url.clone())),
                 ),
             ),

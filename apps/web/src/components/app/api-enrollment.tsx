@@ -34,7 +34,7 @@ function CapInput({
   describedBy: string;
 }) {
   return (
-    <div className="flex h-9 w-36 items-center rounded-lg bg-page px-3 ring-1 ring-line focus-within:ring-2 focus-within:ring-green dark:bg-sunken">
+    <div className="flex h-9 w-36 items-center rounded-lg bg-page px-3 ring-1 ring-line focus-within:ring-2 focus-within:ring-brand dark:bg-sunken">
       <span aria-hidden="true" className="font-mono text-[13px]/4 text-ink-2">
         $
       </span>
@@ -133,7 +133,7 @@ export function ApiEnrollmentCard({
           API billing
         </h2>
         {labels[state] ? (
-          <Badge size="sm" tone={state === "enrolled" ? "green" : "neutral"}>
+          <Badge size="sm" tone={state === "enrolled" ? "brand" : "neutral"}>
             {labels[state]}
           </Badge>
         ) : null}

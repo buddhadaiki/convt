@@ -50,7 +50,7 @@ pub fn compact(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
                 p.secondary,
             ))
             .child(
-                text_button("sign-in-reopen", "Open again", p.green, 12.)
+                text_button("sign-in-reopen", "Open again", p.brand, 12.)
                     .on_click(on_app(app, AppState::reopen_sign_in)),
             )
             .child(
@@ -63,7 +63,7 @@ pub fn compact(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
         (SignIn::Failed(e), _) => row
             .child(line("account-status", e.clone(), p.error).flex_1())
             .child(
-                text_button("sign-in", "Try again", p.green, 12.)
+                text_button("sign-in", "Try again", p.brand, 12.)
                     .on_click(on_app(app, AppState::start_sign_in)),
             ),
         (SignIn::Idle, Some(email)) => {
@@ -83,7 +83,7 @@ pub fn compact(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
         (SignIn::Idle, None) => row
             .child(text(12., 16., p.secondary).child("Have Pro?"))
             .child(
-                text_button("sign-in", "Sign in with convt.app", p.green, 12.)
+                text_button("sign-in", "Sign in with convt.app", p.brand, 12.)
                     .font_weight(FontWeight::MEDIUM)
                     .on_click(on_app(app, AppState::start_sign_in)),
             ),
@@ -121,7 +121,7 @@ pub fn section(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
                     .flex()
                     .gap(px(14.))
                     .child(
-                        text_button("sign-in-reopen", "Open the page again", p.green, 12.)
+                        text_button("sign-in-reopen", "Open the page again", p.brand, 12.)
                             .on_click(on_app(app, AppState::reopen_sign_in)),
                     )
                     .child(
@@ -135,7 +135,7 @@ pub fn section(app: &Entity<AppState>, p: &Palette, cx: &App) -> Div {
             let refresh = match &account.refresh {
                 Refresh::Idle => None,
                 Refresh::Running => Some(line("refresh-status", "Checking convt.app…", p.secondary)),
-                // Body text, not green: green text is below 4.5:1 on white.
+                // Body text, not blue: the brand blue is below 4.5:1 on white.
                 Refresh::Done(m) => Some(line("refresh-status", m.clone(), p.text)),
                 Refresh::Failed(m) => Some(line("refresh-status", m.clone(), p.error)),
             };

@@ -190,7 +190,7 @@ function PeriodButton({
 
 type Token = [color: string, text: string];
 
-const kw = "text-[#7fd3a6]";
+const kw = "text-[#76a2ff]";
 const id = "text-land-mono";
 const punct = "text-land-muted";
 const str = "text-[#f2c46d]";
@@ -286,7 +286,7 @@ function ApiCard({ available, launched }: { available: boolean; launched: boolea
           <code>
             {code.map((line, i) => (
               <span key={i} className="flex">
-                <span aria-hidden="true" className="w-7 shrink-0 text-[#3e4441] select-none">
+                <span aria-hidden="true" className="w-7 shrink-0 text-[#404248] select-none">
                   {i + 1}
                 </span>
                 {line.map(([color, text], j) => (

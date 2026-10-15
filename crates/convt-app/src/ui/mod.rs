@@ -322,7 +322,7 @@ fn blocked_banner(state: &State, p: &Palette) -> Option<impl IntoElement + use<>
         "Buy a license"
     };
     let download = matches!(state, State::NotCovered(_)).then(|| {
-        theme::text_button("download", "Download a covered build", p.green, 12.)
+        theme::text_button("download", "Download a covered build", p.brand, 12.)
             .on_click(|_, _, cx| cx.open_url(DOWNLOAD_URL))
     });
     Some(
@@ -343,7 +343,7 @@ fn blocked_banner(state: &State, p: &Palette) -> Option<impl IntoElement + use<>
                     .gap(px(14.))
                     .children(download)
                     .child(
-                        theme::text_button("buy", buy, p.green, 12.)
+                        theme::text_button("buy", buy, p.brand, 12.)
                             .on_click(|_, _, cx| cx.open_url(BUY_URL)),
                     )
                     .child(

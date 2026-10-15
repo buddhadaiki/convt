@@ -78,7 +78,7 @@ export function Engines() {
 }
 
 function Connectors() {
-  const stroke = "#4cc28373";
+  const stroke = "#5e91ff73";
   return (
     <svg
       width="1056"
@@ -112,7 +112,7 @@ function Connectors() {
         strokeWidth="1.5"
       />
       {[126, 394, 662, 930].map((cx) => (
-        <circle key={cx} cx={cx} cy="53" r="3" fill="#4cc283" />
+        <circle key={cx} cx={cx} cy="53" r="3" fill="#5e91ff" />
       ))}
     </svg>
   );
@@ -120,7 +120,7 @@ function Connectors() {
 
 function EngineCard({ name, from, to, description, kind, formats }: (typeof engines)[number]) {
   return (
-    <li className="flex flex-col justify-between gap-7 rounded-[14px] bg-[#0b0d0cdb] p-6 shadow-[0_0_0_1px_#ffffff14,0_24px_48px_#00000066] min-[1120px]:w-[252px] min-[1120px]:shrink-0">
+    <li className="flex flex-col justify-between gap-7 rounded-[14px] bg-[#0c0c0edb] p-6 shadow-[0_0_0_1px_#ffffff14,0_24px_48px_#00000066] min-[1120px]:w-[252px] min-[1120px]:shrink-0">
       <div className="flex flex-col gap-5">
         <p className="flex items-center gap-2 font-mono text-[12px]/[16px] text-land-mono">
           {from}

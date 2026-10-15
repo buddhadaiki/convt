@@ -361,7 +361,7 @@ impl SettingsView {
                             .child(text(12., 16., p.secondary).child(status)),
                     )
                     .child(
-                        text_button("manage-finder", button, p.green, 12.)
+                        text_button("manage-finder", button, p.brand, 12.)
                             .on_click(|_, _, cx| cx.open_url(EXTENSION_SETTINGS)),
                     ),
                 p,
@@ -533,16 +533,16 @@ impl SettingsView {
                     .px(px(8.))
                     .py(px(2.))
                     .rounded(px(5.))
-                    .bg(if on { p.green_tint } else { p.chip })
+                    .bg(if on { p.brand_tint } else { p.chip })
                     .border_1()
-                    .border_color(if on { p.green } else { p.chip_border })
+                    .border_color(if on { p.brand } else { p.chip_border })
                     .on_click(move |_, _, cx| {
                         let _ = weak.update(cx, |this, cx| {
                             this.preset_to = (this.preset_to != Some(to)).then_some(to);
                             cx.notify();
                         });
                     })
-                    .child(text(12., 16., if on { p.green } else { p.text }).child(to.name))
+                    .child(text(12., 16., if on { p.brand } else { p.text }).child(to.name))
             }));
         let form = div()
             .flex()
@@ -602,7 +602,7 @@ impl SettingsView {
                             .child(if empty { "No presets yet." } else { "Presets" }),
                     )
                     .children(dir.map(|dir| {
-                        text_button("open-presets", "Open presets folder", p.green, 12.)
+                        text_button("open-presets", "Open presets folder", p.brand, 12.)
                             .on_click(move |_, _, cx| open_folder(&dir, cx))
                     })),
             )
@@ -655,7 +655,7 @@ impl SettingsView {
                         12.,
                         16.,
                         if state.allows_conversion() {
-                            p.green
+                            p.brand
                         } else {
                             p.secondary
                         },
@@ -694,7 +694,7 @@ impl SettingsView {
                                 } else {
                                     "Buy a license"
                                 },
-                                p.green,
+                                p.brand,
                                 12.,
                             )
                             .on_click(|_, _, cx| cx.open_url(BUY_URL)),

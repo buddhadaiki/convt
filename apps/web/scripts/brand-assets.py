@@ -35,8 +35,8 @@ out = web / "public" / "brand"
 manifest_path = web / "src" / "components" / "brand" / "manifest.json"
 
 # The mark's colors, from design-assets/brand/README.md and the --mark-* tokens in styles.css.
-ON_DARK = {"ink": "#edefee", "top": "#46d08b", "bottom": "#1fa463", "overlap": "#a6f0c8"}
-ON_LIGHT = {"ink": "#0a0a0a", "top": "#1fb36c", "bottom": "#127a47", "overlap": "#0b5c34"}
+ON_DARK = {"ink": "#eeeef0", "top": "#6595ff", "bottom": "#4c82ff", "overlap": "#a5c3ff"}
+ON_LIGHT = {"ink": "#0a0a0a", "top": "#6092ff", "bottom": "#325ec7", "overlap": "#244698"}
 
 # The mark: two 19-unit rounded squares on a 32-unit grid, the source file at (2, 2) and the
 # converted file at (11, 11). Same geometry as src/components/logo.tsx. The files crop the
@@ -104,12 +104,12 @@ def mark_group(variant: str, x: float = 0, y: float = 0, size: float = 28) -> tu
         c = ON_DARK if variant == "dark" else ON_LIGHT
         defs = (
             f'<clipPath id="convt-source-{variant}">{SOURCE}/></clipPath>'
-            f'<linearGradient id="convt-green-{variant}" x1="0" y1="0" x2="0" y2="1">'
+            f'<linearGradient id="convt-brand-{variant}" x1="0" y1="0" x2="0" y2="1">'
             f'<stop offset="0" stop-color="{c["top"]}"/><stop offset="1" stop-color="{c["bottom"]}"/>'
             f"</linearGradient>"
         )
         body = (
-            f'<g {place}>{SOURCE} fill="{c["ink"]}"/>{RESULT} fill="url(#convt-green-{variant})"/>'
+            f'<g {place}>{SOURCE} fill="{c["ink"]}"/>{RESULT} fill="url(#convt-brand-{variant})"/>'
             f'{RESULT} fill="{c["overlap"]}" clip-path="url(#convt-source-{variant})"/></g>'
         )
         return defs, body

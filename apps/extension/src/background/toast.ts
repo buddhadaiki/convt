@@ -35,7 +35,7 @@ export async function showToast(tabId: number, view: ToastView): Promise<boolean
 export async function flashBadge(tabId: number, outcome: "done" | "failed"): Promise<void> {
   const done = outcome === "done";
   try {
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: done ? "#127a47" : "#b3261e" });
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: done ? "#325ec7" : "#b3261e" });
     await chrome.action.setBadgeTextColor({ tabId, color: "#ffffff" });
     await chrome.action.setBadgeText({ tabId, text: done ? "✓" : "!" });
     setTimeout(() => void chrome.action.setBadgeText({ tabId, text: "" }).catch(() => {}), 6000);

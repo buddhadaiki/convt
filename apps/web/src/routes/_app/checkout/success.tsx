@@ -282,7 +282,7 @@ function Actions({
         <a
           href={secondary.href}
           className={cx(
-            "rounded-sm text-[13px]/4 font-medium text-green hover:underline hover:underline-offset-2",
+            "rounded-sm text-[13px]/4 font-medium text-brand hover:underline hover:underline-offset-2",
             focusRing,
           )}
         >
@@ -303,7 +303,7 @@ function Progress() {
       aria-label="Confirming"
       className="h-1 w-full overflow-hidden rounded-full bg-hover"
     >
-      <div className="h-full w-1/3 animate-[convt-progress_1.4s_ease-in-out_infinite] rounded-full bg-green motion-reduce:animate-none" />
+      <div className="h-full w-1/3 animate-[convt-progress_1.4s_ease-in-out_infinite] rounded-full bg-brand motion-reduce:animate-none" />
     </div>
   );
 }

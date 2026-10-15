@@ -9,11 +9,11 @@ function cx(...parts: Array<string | false | null | undefined>) {
 export { cx };
 
 const focus =
-  "outline-none focus-visible:ring-2 focus-visible:ring-green focus-visible:ring-offset-2 focus-visible:ring-offset-page";
+  "outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-page";
 
 export const focusRing = focus;
 
-/** Green gradient button. See `.btn-primary` in styles.css for the contrast note. */
+/** Blue gradient button. See `.btn-primary` in styles.css for the contrast note. */
 export function PrimaryButton({ className, ...props }: ComponentProps<"button">) {
   return (
     <button
@@ -52,19 +52,19 @@ export function SecondaryLink({ className, ...props }: ComponentProps<"a">) {
   return <a {...props} className={cx(secondary, focus, className)} />;
 }
 
-/** Plain text action: green by default, `tone="muted"` for gray, `tone="danger"` for red. */
+/** Plain text action: blue by default, `tone="muted"` for gray, `tone="danger"` for red. */
 export function TextButton({
-  tone = "green",
+  tone = "brand",
   className,
   ...props
-}: ComponentProps<"button"> & { tone?: "green" | "muted" | "ink" | "danger" }) {
+}: ComponentProps<"button"> & { tone?: "brand" | "muted" | "ink" | "danger" }) {
   return (
     <button
       type="button"
       {...props}
       className={cx(
         "cursor-pointer rounded-sm text-[13px]/4 hover:underline hover:underline-offset-2",
-        tone === "green" && "font-medium text-green",
+        tone === "brand" && "font-medium text-brand",
         tone === "muted" && "text-ink-2",
         tone === "ink" && "text-ink",
         tone === "danger" && "text-error",
@@ -93,11 +93,11 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
 }
 
 export function Badge({
-  tone = "green",
+  tone = "brand",
   size = "md",
   children,
 }: {
-  tone?: "green" | "neutral";
+  tone?: "brand" | "neutral";
   size?: "sm" | "md";
   children: React.ReactNode;
 }) {
@@ -106,7 +106,7 @@ export function Badge({
       className={cx(
         "inline-block rounded px-1.5 py-0.5 font-mono",
         size === "md" ? "text-xs/4" : "text-[11px]/3.5",
-        tone === "green" ? "bg-green-tint text-green" : "bg-hover text-ink-2",
+        tone === "brand" ? "bg-brand-tint text-brand" : "bg-hover text-ink-2",
       )}
     >
       {children}

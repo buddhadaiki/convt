@@ -253,7 +253,7 @@ function Converter() {
             </TextButton>
           )}
           {result && (
-            <div className="flex flex-col gap-3 rounded-lg bg-green-tint p-4" role="status">
+            <div className="flex flex-col gap-3 rounded-lg bg-brand-tint p-4" role="status">
               <h2 className="text-sm font-semibold">Conversion complete</h2>
               <p className="text-xs text-ink-2">
                 Download your files now. These links expire in 5 minutes.
@@ -263,7 +263,7 @@ function Converter() {
                   key={output.url}
                   href={output.url}
                   download={output.name}
-                  className={`break-all text-sm font-medium text-green underline ${focusRing}`}
+                  className={`break-all text-sm font-medium text-brand underline ${focusRing}`}
                 >
                   Download {output.name}
                 </a>

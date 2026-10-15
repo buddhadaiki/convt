@@ -46,9 +46,9 @@ function CheckEmailPage() {
     <AuthLayout>
       <span
         aria-hidden="true"
-        className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-green-tint shadow-[inset_0_0_0_1px_var(--green-line)]"
+        className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-brand-tint shadow-[inset_0_0_0_1px_var(--brand-line)]"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" className="text-green">
+        <svg width="22" height="22" viewBox="0 0 24 24" className="text-brand">
           <rect
             x="3"
             y="5"

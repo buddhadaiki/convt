@@ -54,7 +54,7 @@ export function AuthLayout({
             <ul className="flex flex-col gap-2">
               {aside.items.map((item) => (
                 <li key={item} className="flex items-center gap-2.5 text-[13px]/4">
-                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-[3px] bg-green" />
+                  <span aria-hidden="true" className="size-1.5 shrink-0 rounded-[3px] bg-brand" />
                   {item}
                 </li>
               ))}

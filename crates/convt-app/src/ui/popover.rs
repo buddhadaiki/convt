@@ -232,7 +232,7 @@ impl PopoverView {
                             .child("Automations"),
                     )
                     .child(
-                        text_button("new-rule", "New rule", p.green, 12.)
+                        text_button("new-rule", "New rule", p.brand, 12.)
                             .font_weight(FontWeight::MEDIUM)
                             .on_click(|_, _, cx| show_page(Page::Automations, cx)),
                     ),
@@ -306,10 +306,10 @@ fn copied_chip(job: JobId, p: &Palette) -> Div {
                 .px(px(8.))
                 .py(px(4.))
                 .rounded(px(6.))
-                .bg(p.green_tint)
-                .child(Icon::new(IconName::Check).size(px(12.)).text_color(p.green))
+                .bg(p.brand_tint)
+                .child(Icon::new(IconName::Check).size(px(12.)).text_color(p.brand))
                 .child(
-                    text(12., 16., p.green)
+                    text(12., 16., p.brand)
                         .font_weight(FontWeight::MEDIUM)
                         .child("Copied to your clipboard"),
                 ),
@@ -348,7 +348,7 @@ fn job_row(entry: &Entry, now: Instant, p: &Palette) -> Div {
                         .child(title(&entry.input, entry.to.name, p).flex_1())
                         .child(mono(11., 14., p.secondary).child(pct)),
                 )
-                .child(theme::progress(fraction, p.popover_track, p.green))
+                .child(theme::progress(fraction, p.popover_track, p.brand))
                 .child(
                     div()
                         .flex()
@@ -394,7 +394,7 @@ impl Render for PopoverView {
             .border_dashed()
             .border_color(p.drop_border)
             .drag_over::<ExternalPaths>(move |style, _, _, _| {
-                style.border_color(p.green).bg(p.green_tint)
+                style.border_color(p.brand).bg(p.brand_tint)
             })
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 this.drop_files(paths.paths(), cx);
