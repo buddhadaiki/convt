@@ -62,13 +62,19 @@ def ensure_url(cache, item, cache_field='name'):
         raise ValueError('Missing corresponding source with no fetch URL: '+str(relative))
     source.parent.mkdir(parents=True, exist_ok=True)
     temporary=source.with_suffix(source.suffix+'.download')
-    with urllib.request.urlopen(item['url'], timeout=120) as response, temporary.open('wb') as out:
-        shutil.copyfileobj(response, out)
-    if sha(temporary)!=item['sha256']:
+    # `mirrors` are permanent copies for URLs that rot (the Ubuntu pool).
+    for url in [item['url'],*item.get('mirrors',[])]:
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response, temporary.open('wb') as out:
+                shutil.copyfileobj(response, out)
+        except OSError:
+            continue
+        if sha(temporary)==item['sha256']:
+            temporary.replace(source)
+            return source
         temporary.unlink()
-        raise ValueError('Downloaded source hash mismatch: '+str(relative))
-    temporary.replace(source)
-    return source
+    temporary.unlink(missing_ok=True)
+    raise ValueError('Downloaded source hash mismatch or no reachable URL: '+str(relative))
 
 
 def retain(tree, cache, destination, item, cache_field='name'):
