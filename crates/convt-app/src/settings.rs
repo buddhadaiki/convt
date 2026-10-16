@@ -5,7 +5,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use convt_core::{Category, Format, Output, WindowsMenu, format_by_id};
+use convt_core::{Category, Format, Output, format_by_id};
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,7 +20,8 @@ pub struct Settings {
     pub notifications: bool,
     /// Show each finished file in the file manager.
     pub reveal_when_done: bool,
-    /// Show the menu bar (tray) icon where the platform has one.
+    /// "Keep running in the background": show the tray (menu bar) icon and
+    /// keep running after the last window closes. The key predates the label.
     pub menu_bar_icon: bool,
     /// The first-run window was finished (Start converting / Open convt).
     /// Closing or quitting mid-setup leaves this false so the next launch
@@ -29,19 +30,24 @@ pub struct Settings {
     /// The UTC day (`YYYY-MM-DD`) the app last asked convt.app for the
     /// current Pro key, so launches renew at most once a day.
     pub license_checked: Option<String>,
-    /// Check convt.app once a day for a newer build. On by default.
+    /// Cached online Pro trial, accepted only for a signed-in device session.
+    pub trial_cache: Option<TrialCache>,
+    /// Check convt.app for a newer build at launch and every few hours. On
+    /// by default. Check now works either way.
     pub update_checks: bool,
-    /// The UTC day (`YYYY-MM-DD`) of the last update check.
-    pub update_checked: Option<String>,
+    /// When (Unix seconds) an update check last got an answer that checked
+    /// out. Older files kept the day in `update_checked`, which is ignored.
+    pub update_checked_at: Option<u64>,
     /// The highest update manifest `sequence` accepted, so an older signed
     /// manifest can't be replayed to hide a newer release.
     pub update_sequence: u64,
-    /// What Add files converts each kind of file to.
+    /// What files dropped on the menu bar popover convert to, by kind.
     pub defaults: Defaults,
     /// Automation rules. Each enabled rule watches one folder.
     pub automations: Vec<Automation>,
-    /// Output choices shared with the Windows Explorer menu through the CLI.
-    pub windows_menu: WindowsMenu,
+    /// The user agreed that Cloud conversions upload the file to convt's
+    /// servers. Asked once, the first time they pick Cloud.
+    pub cloud_consent: bool,
 }
 
 impl Default for Settings {
@@ -54,17 +60,24 @@ impl Default for Settings {
             menu_bar_icon: true,
             first_run_done: false,
             license_checked: None,
+            trial_cache: None,
             update_checks: true,
-            update_checked: None,
+            update_checked_at: None,
             update_sequence: 0,
             defaults: Defaults::default(),
             automations: crate::placeholder::example_automations(),
-            windows_menu: WindowsMenu::default(),
+            cloud_consent: false,
         }
     }
 }
 
-/// The format Add files picks for each kind of file, by format id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrialCache {
+    pub ends_at: String,
+    pub fetched_on: String,
+}
+
+/// The format the popover's drop bar picks for each kind of file, by format id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Defaults {
     /// Camera and web photos (HEIC, AVIF, WebP, JPEG).
@@ -129,14 +142,6 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 5] = [
-        Kind::Photos,
-        Kind::Images,
-        Kind::Video,
-        Kind::Audio,
-        Kind::Documents,
-    ];
-
     /// The kind a file of `format` belongs to. PDFs have none: they are
     /// already what documents become.
     pub fn of(format: &Format) -> Option<Kind> {
@@ -160,26 +165,6 @@ impl Kind {
             other => other,
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Kind::Photos => "Photos",
-            Kind::Images => "Images",
-            Kind::Video => "Video",
-            Kind::Audio => "Audio",
-            Kind::Documents => "Documents",
-        }
-    }
-
-    pub fn id(self) -> &'static str {
-        match self {
-            Kind::Photos => "photos",
-            Kind::Images => "images",
-            Kind::Video => "video",
-            Kind::Audio => "audio",
-            Kind::Documents => "documents",
-        }
-    }
 }
 
 impl Defaults {
@@ -193,6 +178,7 @@ impl Defaults {
         })
     }
 
+    #[cfg(test)]
     pub fn set(&mut self, kind: Kind, to: &Format) {
         let slot = match kind {
             Kind::Photos => &mut self.photos,
@@ -386,14 +372,17 @@ mod tests {
         assert_eq!(s.concurrency(), 2);
         assert!(matches!(s.output(), Output::Dir(_)));
 
-        // Unknown keys, such as `account` from before desktop sign-in, are ignored.
+        // Unknown keys, such as `account` from before desktop sign-in and the
+        // daily `update_checked`, are ignored.
         std::fs::write(
             &path,
-            "notifications = false\nfuture_key = 1\naccount = \"a@b.c\"\n",
+            "notifications = false\nfuture_key = 1\naccount = \"fixture-account\"\n\
+             update_checked = \"2026-10-05\"\n",
         )
         .unwrap();
         let s = Settings::load(&path).unwrap();
         assert!(!s.notifications && s.output_dir.is_none());
+        assert_eq!(s.update_checked_at, None);
         assert!(matches!(s.output(), Output::Beside));
         assert_eq!(s.defaults, Defaults::default());
         assert!(!s.first_run_done && s.menu_bar_icon);

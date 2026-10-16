@@ -135,28 +135,41 @@ struct ProbedMenu {
     at: Instant,
 }
 
-/// One answer per menu construction: the same selection within [`MENU_REUSE`]
-/// reuses it, so a right-click starts the CLI once per extension, not twice.
-fn reuse_or_probe(
+/// GetState probes and keeps its answer for the EnumSubCommands of the same
+/// menu construction, so a right-click starts the CLI once per extension, not
+/// twice.
+fn probe_and_keep(
     cache: &Mutex<Option<ProbedMenu>>,
     paths: &[PathBuf],
     now: Instant,
     probe: impl FnOnce(&[PathBuf]) -> MenuSelection,
 ) -> Result<MenuSelection> {
-    let mut cache = cache.lock().map_err(|_| error())?;
-    if let Some(probed) = cache.as_ref()
-        && probed.paths == paths
-        && now.saturating_duration_since(probed.at) < MENU_REUSE
-    {
-        return Ok(probed.menu.clone());
-    }
     let menu = probe(paths);
-    *cache = Some(ProbedMenu {
+    *cache.lock().map_err(|_| error())? = Some(ProbedMenu {
         paths: paths.to_vec(),
         menu: menu.clone(),
         at: now,
     });
     Ok(menu)
+}
+
+/// EnumSubCommands uses GetState's answer once, for the same selection within
+/// [`MENU_REUSE`]. Any later enumeration probes again and sees new preferences.
+fn take_or_probe(
+    cache: &Mutex<Option<ProbedMenu>>,
+    paths: &[PathBuf],
+    now: Instant,
+    probe: impl FnOnce(&[PathBuf]) -> MenuSelection,
+) -> Result<MenuSelection> {
+    let kept = cache.lock().map_err(|_| error())?.take();
+    match kept {
+        Some(probed)
+            if probed.paths == paths && now.saturating_duration_since(probed.at) < MENU_REUSE =>
+        {
+            Ok(probed.menu)
+        }
+        _ => Ok(probe(paths)),
+    }
 }
 
 fn parse_probe(bytes: &[u8]) -> Option<MenuSelection> {
@@ -388,8 +401,11 @@ impl IObjectWithSite_Impl for ExplorerCommand_Impl {
     }
 }
 impl ExplorerCommand_Impl {
-    fn menu_for(&self, paths: &[PathBuf]) -> Result<MenuSelection> {
-        reuse_or_probe(&self.menu, paths, Instant::now(), selection_menu)
+    fn state_menu(&self, paths: &[PathBuf]) -> Result<MenuSelection> {
+        probe_and_keep(&self.menu, paths, Instant::now(), selection_menu)
+    }
+    fn enum_menu(&self, paths: &[PathBuf]) -> Result<MenuSelection> {
+        take_or_probe(&self.menu, paths, Instant::now(), selection_menu)
     }
     fn selected_paths(&self) -> Result<Vec<PathBuf>> {
         let paths = self.selection.lock().map_err(|_| error())?.clone();
@@ -451,7 +467,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
         let Ok(paths) = files(items) else {
             return Ok(ECS_HIDDEN.0 as u32);
         };
-        let menu = self.menu_for(&paths)?;
+        let menu = self.state_menu(&paths)?;
         *self.selection.lock().map_err(|_| error())? = paths;
         let state = if menu.more { ECS_ENABLED } else { ECS_HIDDEN };
         Ok(state.0 as u32)
@@ -488,7 +504,7 @@ impl IExplorerCommand_Impl for ExplorerCommand_Impl {
             return Err(Error::from_hresult(E_NOTIMPL));
         }
         let paths = self.selected_paths()?;
-        let commands = command_modes(self.menu_for(&paths)?)
+        let commands = command_modes(self.enum_menu(&paths)?)
             .into_iter()
             .map(|mode| {
                 ExplorerCommand {
@@ -715,21 +731,27 @@ mod tests {
             calls.set(calls.get() + 1);
             menu(&["jpeg"])
         };
-        // GetState, then EnumSubCommands for the same selection.
+        // GetState, then EnumSubCommands for the same selection: one probe.
         assert_eq!(
-            reuse_or_probe(&cache, &png, start, probe).unwrap(),
+            probe_and_keep(&cache, &png, start, probe).unwrap(),
             menu(&["jpeg"])
         );
+        let soon = start + Duration::from_millis(300);
         assert_eq!(
-            reuse_or_probe(&cache, &png, start + Duration::from_millis(300), probe).unwrap(),
+            take_or_probe(&cache, &png, soon, probe).unwrap(),
             menu(&["jpeg"])
         );
         assert_eq!(calls.get(), 1);
-        // A different selection, or the same one after the window, asks again.
-        reuse_or_probe(&cache, &mp4, start, probe).unwrap();
+        // The answer is used once: enumerating again reads new preferences.
+        take_or_probe(&cache, &png, soon, probe).unwrap();
         assert_eq!(calls.get(), 2);
-        reuse_or_probe(&cache, &mp4, start + MENU_REUSE, probe).unwrap();
-        assert_eq!(calls.get(), 3);
+        // Another selection, or the same one too late, probes again too.
+        probe_and_keep(&cache, &png, start, probe).unwrap();
+        take_or_probe(&cache, &mp4, soon, probe).unwrap();
+        assert_eq!(calls.get(), 4);
+        probe_and_keep(&cache, &png, start, probe).unwrap();
+        take_or_probe(&cache, &png, start + MENU_REUSE, probe).unwrap();
+        assert_eq!(calls.get(), 6);
     }
 
     #[test]

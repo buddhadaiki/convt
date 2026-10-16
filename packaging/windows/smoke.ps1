@@ -18,6 +18,11 @@ $Wxs = Get-Content "$PSScriptRoot/convt.wxs" -Raw
 if ($Wxs -notmatch 'Target="\[INSTALLFOLDER\]convt-app\.exe"') {
     throw 'convt.wxs Start menu shortcut must target convt-app.exe'
 }
+# Desktop sign-in comes back through convt://auth; without the protocol key
+# the browser has nothing to open and the app waits forever.
+if ($Wxs -notmatch 'Key="Software\\Classes\\convt"' -or $Wxs -notmatch 'Name="URL Protocol"' -or $Wxs -notmatch 'convt-app\.exe&quot; &quot;%1&quot;') {
+    throw 'convt.wxs must register convt:// links to open convt-app.exe'
+}
 
 function Test-PeSubsystems {
     param([string]$Gui, [string]$Cli)
@@ -62,6 +67,93 @@ function Remove-OwnedDir {
     if (-not $Item) { return }
     if ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
     Remove-Item -LiteralPath $Full -Recurse -Force
+}
+
+# Installs the MSI for this user, opens a convt:// link the way a browser
+# does, and checks that it starts the installed convt-app.exe. A second link
+# must reach that running app instead of starting another, which is how a
+# sign-in finishes. Uninstalling must remove the protocol again. Because it
+# installs and then uninstalls the real product, it runs only in CI or on a
+# machine without convt installed.
+function Test-UrlProtocol {
+    param([string]$Msi, [string]$Log)
+    $Key = 'HKCU:\Software\Classes\convt'
+    # 3010: installed, a restart is pending.
+    $MsiOk = @(0, 3010)
+    if (-not $env:CI -and (Test-Path -LiteralPath 'HKCU:\Software\Convt')) {
+        Write-Host 'convt is installed for this user; skipping the install and convt:// link check so it is left alone'
+        return
+    }
+    if (Get-Process convt-app -ErrorAction SilentlyContinue) { throw 'a convt-app.exe is already running' }
+    $Before = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+    $Passed = $false
+    try {
+        $Install = Start-Process msiexec -ArgumentList '/i', "`"$Msi`"", '/qn', '/norestart', '/l*v', "`"$Log`"" -Wait -PassThru
+        if ($MsiOk -notcontains $Install.ExitCode) { throw "msiexec /i exited $($Install.ExitCode); see $Log" }
+        $Dir = (Get-ItemProperty -Path 'HKCU:\Software\Convt' -Name InstallFolder).InstallFolder
+        $App = [System.IO.Path]::GetFullPath((Join-Path $Dir 'convt-app.exe'))
+        if (-not (Test-Path -LiteralPath $App)) { throw "installed app missing: $App" }
+        if ((Get-ItemProperty -Path $Key).'(default)' -ne 'URL:convt') { throw 'convt protocol key has the wrong description' }
+        if ($null -eq (Get-ItemProperty -Path $Key -Name 'URL Protocol' -ErrorAction SilentlyContinue)) {
+            throw 'convt protocol key has no URL Protocol value'
+        }
+        $Command = (Get-ItemProperty -Path "$Key\shell\open\command").'(default)'
+        if ($Command -ne "`"$App`" `"%1`"") { throw "convt protocol command is $Command" }
+        Write-Host "convt:// opens: $Command"
+        $Installed = {
+            Get-Process convt-app -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and [System.IO.Path]::GetFullPath($_.Path) -eq $App }
+        }
+        Start-Process 'convt://auth?state=smoke&error=access_denied'
+        $Launched = $null
+        $Deadline = (Get-Date).AddSeconds(30)
+        while (-not $Launched -and (Get-Date) -lt $Deadline) {
+            Start-Sleep -Milliseconds 250
+            $Launched = & $Installed | Select-Object -First 1
+        }
+        if (-not $Launched) { throw 'opening a convt:// link did not start the installed convt-app.exe' }
+        # Hold a handle so the exit code is still readable if it exits.
+        $null = $Launched.Handle
+        Write-Host "convt:// link started $App (pid $($Launched.Id))"
+        # A second link should reach that running app instead of starting
+        # another copy, which is how a sign-in finishes. It held in repeated
+        # runs on a hosted runner, but a runner that keeps installing and
+        # uninstalling the MSI sometimes leaves a stray process, so problems
+        # here are reported in detail without failing the release.
+        Start-Sleep -Seconds 5
+        $Problems = @()
+        if ($Launched.HasExited) { $Problems += "the app started by the first link exited on its own with code $($Launched.ExitCode)" }
+        Start-Process 'convt://auth?state=smoke2&error=access_denied'
+        Start-Sleep -Seconds 10
+        if ($Launched.HasExited) { $Problems += "the app started by the first link exited with code $($Launched.ExitCode)" }
+        $Running = @(& $Installed)
+        if ($Running.Count -ne 1) { $Problems += "$($Running.Count) convt-app.exe processes were running after a second link" }
+        $Inbox = Join-Path ([System.IO.Path]::GetTempPath()) 'convt'
+        $Left = @(Get-ChildItem -LiteralPath $Inbox -Filter 'request-*.json' -ErrorAction SilentlyContinue)
+        if ($Left.Count -ne 0) { $Problems += "requests left unread: $(($Left | ForEach-Object Name) -join ', ')" }
+        if ($Problems.Count -eq 0) {
+            Write-Host 'a second convt:// link went to the running app'
+        } else {
+            $Processes = Get-CimInstance Win32_Process -Filter "Name='convt-app.exe'" |
+                ForEach-Object { "pid $($_.ProcessId), parent $($_.ParentProcessId), started $($_.CreationDate): $($_.CommandLine)" }
+            Write-Warning ("convt:// forwarding check: {0}`n{1}" -f ($Problems -join '; '), ($Processes -join "`n"))
+        }
+        $Passed = $true
+    } finally {
+        # Stop only the apps this test started, so the uninstall never meets
+        # files in use.
+        Get-Process convt-app -ErrorAction SilentlyContinue |
+            Where-Object { $Before -notcontains $_.Id } |
+            ForEach-Object { Stop-Process -Id $_.Id -ErrorAction SilentlyContinue; $_.WaitForExit(10000) | Out-Null }
+        $Remove = Start-Process msiexec -ArgumentList '/x', "`"$Msi`"", '/qn', '/norestart' -Wait -PassThru
+        # Report an uninstall failure only when it isn't hiding an earlier one.
+        if ($MsiOk -notcontains $Remove.ExitCode) {
+            if ($Passed) { throw "msiexec /x exited $($Remove.ExitCode)" }
+            Write-Warning "msiexec /x exited $($Remove.ExitCode)"
+        }
+    }
+    if (Test-Path -LiteralPath $Key) { throw 'uninstalling left the convt protocol key behind' }
+    Write-Host 'convt:// protocol registers on install and is removed on uninstall'
 }
 
 $Msi = Get-Item "$Repo/packaging/out/windows/convt-*-windows-x86_64.msi" | Select-Object -First 1
@@ -193,6 +285,9 @@ if (-not $Gui) { throw 'convt-app.exe did not start' }
         throw "convt-app.exe exited $($Gui.ExitCode) after launch"
     }
     Write-Host "convt-app.exe stayed running (pid $($Gui.Id))"
+    Stop-Process -Id $Gui.Id -ErrorAction SilentlyContinue
+    $Gui.WaitForExit(10000) | Out-Null
+    Test-UrlProtocol -Msi $Msi.FullName -Log (Join-Path $Work 'msiexec.log')
     Write-Host 'Windows MSI smoke test passed'
 } finally {
     if ($Gui -and -not $Gui.HasExited) { Stop-Process -Id $Gui.Id -ErrorAction SilentlyContinue }

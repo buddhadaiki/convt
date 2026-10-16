@@ -1,121 +1,180 @@
-use std::collections::HashSet;
+//! Which targets right-click menus offer, by kind of file. People can pick
+//! their own list for each [`Category`]; a kind they never changed keeps
+//! [`default_menu`]. The choice lives in `menu.toml` in the convt config
+//! directory, so the app, the CLI and every file manager menu agree:
+//!
+//! ```toml
+//! audio = ["flac", "mp3"]
+//! video = ["webm", "mp4", "gif"]
+//! ```
+//!
+//! Keys are category names (`image`, `vector`, `video`, `audio`, `pdf`,
+//! `document`, `presentation`, `spreadsheet`). An unknown key or format id is
+//! skipped, so an older convt still reads a newer file.
 
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::Path;
 
-use crate::{Category, FORMATS, Format, Registry};
+use crate::{Category, Error, Format, Result, format_by_id};
 
-/// Per-user Explorer menu choices. Conversion routes remain unchanged.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WindowsMenu {
-    pub enabled: bool,
-    /// None uses Windows recommendations; an explicit list has no fallback.
-    pub targets: Option<Vec<String>>,
-}
+/// Every kind of file, in the order menus settings list them.
+pub const MENU_KINDS: [Category; 8] = [
+    Category::Image,
+    Category::Vector,
+    Category::Video,
+    Category::Audio,
+    Category::Pdf,
+    Category::Document,
+    Category::Spreadsheet,
+    Category::Presentation,
+];
 
-impl Default for WindowsMenu {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            targets: None,
-        }
+/// The targets a right-click menu offers for a kind of file nobody
+/// customized, most wanted first. GIF has its own list (see
+/// [`crate::Registry::menu_targets`]).
+pub fn default_menu(category: Category) -> &'static [&'static str] {
+    match category {
+        Category::Image => &["jpeg", "png", "webp"],
+        Category::Vector => &["png", "jpeg", "pdf"],
+        Category::Video => &["mp4", "mov", "gif", "mp3"],
+        Category::Audio => &["mp3", "m4a", "wav"],
+        Category::Pdf => &["png", "jpeg", "docx"],
+        Category::Document => &["pdf", "docx", "txt"],
+        Category::Spreadsheet => &["pdf", "xlsx", "csv"],
+        Category::Presentation => &["pdf", "pptx"],
     }
 }
 
-impl WindowsMenu {
-    /// Reachable targets in the input's menu family; configured order is preserved.
-    pub fn menu_targets(&self, registry: &Registry, from: &'static Format) -> Vec<&'static Format> {
-        if !self.enabled {
-            return Vec::new();
+/// The key a category has in `menu.toml`.
+pub fn category_key(category: Category) -> &'static str {
+    match category {
+        Category::Image => "image",
+        Category::Vector => "vector",
+        Category::Video => "video",
+        Category::Audio => "audio",
+        Category::Pdf => "pdf",
+        Category::Document => "document",
+        Category::Presentation => "presentation",
+        Category::Spreadsheet => "spreadsheet",
+    }
+}
+
+/// The category named by a `menu.toml` key.
+pub fn category_by_key(key: &str) -> Option<Category> {
+    MENU_KINDS.into_iter().find(|c| category_key(*c) == key)
+}
+
+/// The menu lists someone picked, by kind of file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MenuChoices {
+    lists: BTreeMap<&'static str, Vec<&'static Format>>,
+}
+
+impl MenuChoices {
+    pub fn parse(toml_text: &str) -> Result<Self> {
+        let table: toml::Table =
+            toml::from_str(toml_text).map_err(|e| Error::InvalidOption(e.message().into()))?;
+        let mut choices = Self::default();
+        for (key, value) in table {
+            let Some(category) = category_by_key(&key) else {
+                continue;
+            };
+            let toml::Value::Array(items) = value else {
+                return Err(Error::InvalidOption(format!(
+                    "`{key}` must be a list of format ids"
+                )));
+            };
+            let mut formats = Vec::new();
+            for item in items {
+                let toml::Value::String(id) = item else {
+                    return Err(Error::InvalidOption(format!(
+                        "`{key}` must be a list of format ids"
+                    )));
+                };
+                if let Some(f) = format_by_id(&id) {
+                    formats.push(f);
+                }
+            }
+            choices.set(category, formats);
         }
-        let Some(configured) = &self.targets else {
-            return Self::default_targets(registry, from);
-        };
-        let reachable = registry.targets(from);
-        let mut seen = HashSet::new();
-        configured
-            .iter()
-            .filter_map(|id| reachable.iter().find(|format| format.id == id).copied())
-            .filter(|format| same_menu_family(from, format))
-            .filter(|format| seen.insert(format.id))
-            .collect()
+        Ok(choices)
     }
 
-    fn default_targets(registry: &Registry, from: &'static Format) -> Vec<&'static Format> {
-        if from.category == Category::Video {
-            let reachable = registry.targets(from);
-            let mut picked: Vec<_> = ["mp4", "mov", "webm", "mkv"]
+    /// Serializes in the format [`MenuChoices::parse`] reads.
+    pub fn to_toml(&self) -> String {
+        let mut table = toml::Table::new();
+        for (key, list) in &self.lists {
+            let ids = list
                 .iter()
-                .filter_map(|id| reachable.iter().find(|format| format.id == *id).copied())
-                .take(3)
+                .map(|f| toml::Value::String(f.id.into()))
                 .collect();
-            if picked.is_empty() {
-                picked = reachable
-                    .iter()
-                    .copied()
-                    .filter(|format| format.category == Category::Video)
-                    .take(3)
-                    .collect();
-            }
-            if let Some(gif) = reachable.iter().find(|format| format.id == "gif") {
-                picked.push(*gif);
-            }
-            return picked;
+            table.insert((*key).into(), toml::Value::Array(ids));
         }
-        let picked: Vec<_> = registry
-            .menu_targets(from)
-            .into_iter()
-            .filter(|format| same_menu_family(from, format))
-            .collect();
-        if picked.is_empty() {
-            registry
-                .targets(from)
-                .into_iter()
-                .filter(|format| same_menu_family(from, format))
-                .take(4)
-                .collect()
+        toml::to_string(&table).expect("a TOML table always serializes")
+    }
+
+    /// Reads `path`. A missing file means nothing was customized; errors
+    /// name the file.
+    pub fn load(path: &Path) -> Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::parse(&text).map_err(|e| {
+                let why = match e {
+                    Error::InvalidOption(msg) => msg,
+                    e => e.to_string(),
+                };
+                Error::InvalidOption(format!("{}: {why}", path.display()))
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Writes atomically, so a menu reading the file never sees half of it.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        std::fs::create_dir_all(dir)?;
+        let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+        tmp.write_all(self.to_toml().as_bytes())?;
+        tmp.persist(path).map_err(|e| Error::Io(e.error))?;
+        Ok(())
+    }
+
+    /// The list picked for `category`, or `None` if it keeps the default.
+    pub fn get(&self, category: Category) -> Option<&[&'static Format]> {
+        self.lists.get(category_key(category)).map(Vec::as_slice)
+    }
+
+    /// Picks `formats` for `category`, in menu order. Duplicates are
+    /// dropped; an empty list goes back to the default.
+    pub fn set(&mut self, category: Category, formats: Vec<&'static Format>) {
+        let mut unique: Vec<&'static Format> = Vec::with_capacity(formats.len());
+        for f in formats {
+            if !unique.contains(&f) {
+                unique.push(f);
+            }
+        }
+        if unique.is_empty() {
+            self.reset(category);
         } else {
-            picked
+            self.lists.insert(category_key(category), unique);
         }
     }
 
-    /// The default menus' union, in format-table and menu order, for settings UI.
-    pub fn recommended_targets(registry: &Registry) -> Vec<String> {
-        let mut seen = HashSet::new();
-        let menu = Self::default();
-        FORMATS
-            .iter()
-            .flat_map(|from| menu.menu_targets(registry, from))
-            .filter(|format| seen.insert(format.id))
-            .map(|format| format.id.to_owned())
-            .collect()
+    /// Goes back to the default list for `category`.
+    pub fn reset(&mut self, category: Category) {
+        self.lists.remove(category_key(category));
     }
 
-    /// Read only the menu section so other clients' setting schemas can evolve.
-    /// The whole document must still be syntactically valid TOML.
-    pub fn from_settings_toml(contents: &str) -> std::result::Result<Self, toml::de::Error> {
-        #[derive(Deserialize, Default)]
-        #[serde(default)]
-        struct MenuSettings {
-            windows_menu: WindowsMenu,
-        }
-
-        toml::from_str::<MenuSettings>(contents).map(|settings| settings.windows_menu)
-    }
-}
-
-fn same_menu_family(from: &Format, to: &Format) -> bool {
-    match from.category {
-        Category::Image | Category::Vector => {
-            matches!(to.category, Category::Image | Category::Vector)
-        }
-        Category::Audio => to.category == Category::Audio,
-        Category::Video => to.category == Category::Video || to.id == "gif",
-        Category::Pdf | Category::Document | Category::Spreadsheet | Category::Presentation => {
-            matches!(
-                to.category,
-                Category::Pdf | Category::Document | Category::Spreadsheet | Category::Presentation
-            )
+    /// What the menu lists for `category`, ignoring what a given input can
+    /// reach: the picked list, else the default.
+    pub fn effective(&self, category: Category) -> Vec<&'static Format> {
+        match self.get(category) {
+            Some(list) => list.to_vec(),
+            None => default_menu(category)
+                .iter()
+                .filter_map(|id| format_by_id(id))
+                .collect(),
         }
     }
 }
@@ -123,249 +182,57 @@ fn same_menu_family(from: &Format, to: &Format) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
-    use crate::{Ctx, Engine, Result, Step, format_by_id};
-
-    struct Routes(Vec<(&'static str, &'static str)>);
-
-    impl Engine for Routes {
-        fn id(&self) -> &'static str {
-            "menu-contract"
-        }
-
-        fn steps(&self) -> Vec<Step> {
-            self.0
-                .iter()
-                .map(|(from, to)| Step {
-                    from: format_by_id(from).unwrap(),
-                    to: format_by_id(to).unwrap(),
-                })
-                .collect()
-        }
-
-        fn convert(&self, _: &Ctx, _: &Path, _: &Path) -> Result<Vec<PathBuf>> {
-            unreachable!("routing fixture is never executed")
-        }
-    }
-
-    fn registry() -> Registry {
-        registry_with_steps(&[
-            ("png", "jpeg"),
-            ("jpeg", "webp"),
-            ("webp", "bmp"),
-            ("gif", "mp4"),
-            ("mp4", "mp3"),
-        ])
-    }
-
-    fn registry_with_steps(steps: &[(&'static str, &'static str)]) -> Registry {
-        let mut registry = Registry::new();
-        registry.register(Arc::new(Routes(steps.to_vec())));
-        registry
-    }
-
-    fn ids(formats: Vec<&'static Format>) -> Vec<&'static str> {
-        formats.into_iter().map(|format| format.id).collect()
+    fn f(id: &str) -> &'static Format {
+        format_by_id(id).unwrap()
     }
 
     #[test]
-    fn defaults_and_disabled_policy_preserve_registry_routes() {
-        let registry = registry();
-        let from = format_by_id("png").unwrap();
-        let all = registry.targets(from);
-        assert_eq!(
-            WindowsMenu::default().menu_targets(&registry, from),
-            registry.menu_targets(from)
-        );
-        let disabled = WindowsMenu {
-            enabled: false,
-            targets: Some(vec!["jpeg".into()]),
-        };
-        assert!(disabled.menu_targets(&registry, from).is_empty());
-        assert_eq!(registry.targets(from), all);
-        assert!(registry.plan(from, format_by_id("bmp").unwrap()).is_ok());
+    fn round_trips_and_skips_what_it_does_not_know() {
+        let mut c = MenuChoices::default();
+        c.set(Category::Audio, vec![f("flac"), f("mp3"), f("flac")]);
+        c.set(Category::Video, vec![f("webm")]);
+        assert_eq!(c.get(Category::Audio).unwrap(), [f("flac"), f("mp3")]);
+        assert_eq!(MenuChoices::parse(&c.to_toml()).unwrap(), c);
+
+        let c = MenuChoices::parse("audio = [\"wav\", \"nope\"]\nfuture = [\"png\"]\n").unwrap();
+        assert_eq!(c.get(Category::Audio).unwrap(), [f("wav")]);
+        assert_eq!(c.get(Category::Image), None);
+        assert!(MenuChoices::parse("audio = \"wav\"").is_err());
+        assert!(MenuChoices::parse("audio = [1]").is_err());
     }
 
     #[test]
-    fn explicit_menu_uses_all_reachable_targets_without_fallback() {
-        let registry = registry();
-        let from = format_by_id("png").unwrap();
-        assert!(!ids(registry.menu_targets(from)).contains(&"bmp"));
-        let custom = WindowsMenu {
-            enabled: true,
-            targets: Some(
-                ["bmp", "unknown", "webp", "bmp", "mp4", "jpeg", "png"]
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-            ),
-        };
-        assert_eq!(
-            ids(custom.menu_targets(&registry, from)),
-            ["bmp", "webp", "jpeg"]
-        );
-        for targets in [vec![], vec!["unknown".into(), "mp4".into(), "png".into()]] {
-            let custom = WindowsMenu {
-                enabled: true,
-                targets: Some(targets),
-            };
-            assert!(custom.menu_targets(&registry, from).is_empty());
-        }
+    fn an_empty_list_means_the_default() {
+        let mut c = MenuChoices::parse("audio = [\"nope\"]").unwrap();
+        assert_eq!(c.get(Category::Audio), None);
+        c.set(Category::Audio, vec![f("opus")]);
+        c.set(Category::Audio, vec![]);
+        assert_eq!(c.get(Category::Audio), None);
+        assert_eq!(c.effective(Category::Audio), [f("mp3"), f("m4a"), f("wav")]);
     }
 
     #[test]
-    fn recommended_targets_are_stable_unique_default_menu_union() {
-        let registry = registry();
-        assert_eq!(
-            WindowsMenu::recommended_targets(&registry),
-            ["webp", "jpeg", "bmp"]
-        );
-        assert!(WindowsMenu::recommended_targets(&Registry::new()).is_empty());
+    fn saves_and_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub/menu.toml");
+        assert_eq!(MenuChoices::load(&path).unwrap(), MenuChoices::default());
+        let mut c = MenuChoices::default();
+        c.set(Category::Document, vec![f("odt"), f("pdf")]);
+        c.save(&path).unwrap();
+        assert_eq!(MenuChoices::load(&path).unwrap(), c);
+        std::fs::write(&path, "document = 3").unwrap();
+        let err = MenuChoices::load(&path).unwrap_err().to_string();
+        assert!(err.contains("menu.toml"), "{err}");
     }
 
     #[test]
-    fn default_video_menu_offers_three_preferred_videos_and_reachable_gif() {
-        let registry = registry_with_steps(&[
-            ("mp4", "mov"),
-            ("mp4", "webm"),
-            ("mp4", "mkv"),
-            ("mp4", "avi"),
-            ("mp4", "gif"),
-            ("mp4", "mp3"),
-            ("mp4", "png"),
-            ("mov", "mp4"),
-        ]);
-        let menu = WindowsMenu::default();
-        let from = format_by_id("mp4").unwrap();
-        let full = registry.targets(from);
-        assert_eq!(
-            ids(menu.menu_targets(&registry, from)),
-            ["mov", "webm", "mkv", "gif"]
-        );
-        assert_eq!(
-            ids(menu.menu_targets(&registry, format_by_id("mov").unwrap())),
-            ["mp4", "webm", "mkv", "gif"]
-        );
-        assert!(ids(registry.menu_targets(from)).contains(&"mp3"));
-        assert!(ids(registry.targets(from)).contains(&"mp3"));
-        assert!(registry.plan(from, format_by_id("mp3").unwrap()).is_ok());
-        assert_eq!(registry.targets(from), full);
-        let recommended = WindowsMenu::recommended_targets(&registry);
-        assert!(recommended.iter().any(|id| id == "gif"));
-        assert!(!recommended.iter().any(|id| id == "mp3"));
-    }
-
-    #[test]
-    fn custom_menu_filters_reachable_cross_family_targets_but_keeps_saved_order() {
-        let registry = registry_with_steps(&[
-            ("mp4", "gif"),
-            ("mp4", "mp3"),
-            ("mp4", "wav"),
-            ("mp4", "mov"),
-            ("mp3", "mp4"),
-            ("mp3", "wav"),
-            ("png", "pdf"),
-            ("png", "svg"),
-            ("png", "jpeg"),
-            ("pdf", "png"),
-            ("pdf", "docx"),
-            ("pdf", "csv"),
-            ("csv", "pptx"),
-            ("pptx", "xlsx"),
-        ]);
-        let menu = WindowsMenu {
-            enabled: true,
-            targets: Some(
-                [
-                    "mp4", "mp3", "gif", "mov", "gif", "wav", "pdf", "svg", "jpeg", "docx", "csv",
-                    "pptx", "xlsx", "unknown",
-                ]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            ),
-        };
-        assert_eq!(
-            ids(menu.menu_targets(&registry, format_by_id("mp4").unwrap())),
-            ["gif", "mov"]
-        );
-        assert_eq!(
-            ids(menu.menu_targets(&registry, format_by_id("mp3").unwrap())),
-            ["wav"]
-        );
-        assert_eq!(
-            ids(menu.menu_targets(&registry, format_by_id("png").unwrap())),
-            ["svg", "jpeg"]
-        );
-        assert_eq!(
-            ids(menu.menu_targets(&registry, format_by_id("pdf").unwrap())),
-            ["docx", "csv", "pptx", "xlsx"]
-        );
-    }
-
-    #[test]
-    fn defaults_fall_back_within_family_after_filtering_registry_recommendations() {
-        let menu = WindowsMenu::default();
-        for (from, steps, expected) in [
-            ("svg", vec![("svg", "pdf"), ("svg", "bmp")], vec!["bmp"]),
-            ("pdf", vec![("pdf", "png"), ("pdf", "csv")], vec!["csv"]),
-            ("gif", vec![("gif", "mp4"), ("gif", "bmp")], vec!["bmp"]),
-            (
-                "mp4",
-                vec![("mp4", "avi"), ("mp4", "gif"), ("mp4", "mp3")],
-                vec!["avi", "gif"],
-            ),
-        ] {
-            let registry = registry_with_steps(&steps);
-            assert_eq!(
-                ids(menu.menu_targets(&registry, format_by_id(from).unwrap())),
-                expected,
-                "{from}"
-            );
-        }
-        assert!(
-            menu.menu_targets(&Registry::new(), format_by_id("mp4").unwrap())
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn serde_defaults_round_trip_preserving_explicit_empty_targets() {
-        assert_eq!(
-            toml::from_str::<WindowsMenu>("").unwrap(),
-            WindowsMenu::default()
-        );
-        let disabled: WindowsMenu = toml::from_str("enabled = false\n").unwrap();
-        assert!(!disabled.enabled);
-        assert_eq!(disabled.targets, None);
-        let empty: WindowsMenu = toml::from_str("targets = []\n").unwrap();
-        assert!(empty.enabled);
-        assert_eq!(empty.targets, Some(vec![]));
-        assert_eq!(
-            toml::from_str::<WindowsMenu>(&toml::to_string(&empty).unwrap()).unwrap(),
-            empty
-        );
-    }
-
-    #[test]
-    fn settings_parser_interprets_only_the_menu_section_and_reports_bad_toml() {
-        assert_eq!(
-            WindowsMenu::from_settings_toml("concurrency = 'future schema'\n").unwrap(),
-            WindowsMenu::default()
-        );
-        assert_eq!(
-            WindowsMenu::from_settings_toml(
-                "notifications = 'future schema'\n[windows_menu]\ntargets = ['webp']\n"
-            )
-            .unwrap(),
-            WindowsMenu {
-                enabled: true,
-                targets: Some(vec!["webp".into()]),
+    fn every_default_names_a_real_format() {
+        for c in MENU_KINDS {
+            for id in default_menu(c) {
+                assert!(format_by_id(id).is_some(), "{id}");
             }
-        );
-        assert!(WindowsMenu::from_settings_toml("[windows_menu").is_err());
-        assert!(WindowsMenu::from_settings_toml("[windows_menu]\nenabled = 'no'\n").is_err());
+            assert_eq!(category_by_key(category_key(c)), Some(c));
+        }
     }
 }

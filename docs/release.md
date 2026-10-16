@@ -41,6 +41,10 @@ The Mac release is Apple silicon (arm64) only and uses FFmpeg built from [pinned
 
 Document packs are separate artifacts. They require matching sources, pinned platform digests and explicit installation. Update discovery must never fetch them. [The document-pack contract](document-pack.md) owns that flow.
 
+## Pinned inputs that left upstream
+
+Distributions delete superseded packages. When a pinned input disappears, keep the pin and fetch the same bytes from somewhere that keeps them: Launchpad's `+sourcefiles` URLs for Ubuntu sources, or the `build-inputs` prerelease on this repository for anything else (it holds the Alpine zlib 1.3.2-r0 packages the AppImage runtime build uses). Upload the exact file, check its SHA-256 against the lock, and point the lock's `url` at it. Never delete or replace a `build-inputs` asset: older releases rebuild from it.
+
 ## Keys and manifests
 
 `bun run update:keygen PATH` writes a base64url 32-byte Ed25519 seed with mode 0600 outside the repository. It refuses existing paths and repository paths, including symlinked parent directories. Store the production seed in a password manager. The license signing seed stays with billing. Use a different update seed and public key. Package clients embed `CONVT_UPDATE_PUBKEY`; this is a trust root and must never come from the downloaded manifest.
@@ -50,6 +54,16 @@ The website consumes [manifest.schema.json](../packaging/release/manifest.schema
 `bun run release:manifest generate DIR VERSION DATE BASE_URL [HISTORY_JSON]` writes the website JSON. `SOURCE_DATE_EPOCH` supplies `issued_at`; `CONVT_MANIFEST_SEQUENCE` defaults to that epoch and must increase on metadata revisions. `CONVT_MANIFEST_EXPIRES` defaults to 90 days after issuance. Refresh and re-sign metadata before expiry even if there is no new application build. CI accepts the previous signed update envelope as `history_url`, authenticates it with the compiled update public key, and preserves its builds at both generation stages. A production first release requires explicit `initial_release` confirmation. Preserve historical covered builds when refreshing it. `bun run release:manifest sign MANIFEST EXTERNAL_SEED OUTPUT` writes the signed envelope.
 
 The envelope contains `payload` and `signature`, both unpadded base64url. Payload is the exact JSON byte sequence. Signatures cover the ASCII bytes of `convt-update-v1\n` followed by the base64url payload. This domain separates update signatures from license signatures. No JSON canonicalization is needed because verifiers authenticate the encoded bytes before parsing.
+
+## How the app installs an update
+
+The desktop app fetches `update-manifest.json` through `https://convt.app/updates/manifest.json`, verifies it against the embedded update key, and picks the newest build its license covers. If the install can replace itself, it downloads that build's artifact in the background, from the URL in the manifest, and keeps it only if the byte count and SHA-256 match the signed record. Then it offers "Restart to update". So every artifact URL must keep serving exactly the bytes the manifest names; re-signing or re-uploading an artifact means a new manifest.
+
+- macOS (`dmg`): the image is mounted read-only, its `convt.app` must pass `codesign --verify --deep --strict` and carry the running app's Team ID, and it replaces the running bundle in place. The disk image must keep `convt.app` at its root. An app running from the image, from an App Translocation copy or from a folder the user can't write falls back to the download page.
+- Windows (`msi`): `msiexec /i <msi> /passive /norestart` runs after the app quits, then the app starts again from the `InstallFolder` the MSI records under `HKCU\Software\Convt`. This relies on the per-user scope and `MajorUpgrade` in `packaging/windows/convt.wxs`; keep the `UpgradeCode`.
+- Linux (`AppImage`): the file named by `$APPIMAGE` is replaced by a rename in its own folder. The deb, rpm and tarball still open the download page; their users update through the package manager or by hand.
+
+The code is `crates/convt-app/src/update.rs` and `crates/convt-app/src/update/`.
 
 ## Signing and publishing
 

@@ -10,17 +10,22 @@ mod account;
 mod automation;
 mod clipboard;
 mod clock;
+mod cloud;
 mod finder;
 mod history;
 mod instance;
 mod jobs;
 #[cfg(target_os = "macos")]
 mod macos;
+mod menu;
 mod model;
 mod pack;
 mod placeholder;
 mod request;
 mod settings;
+// Tests never track the real System Settings window.
+#[cfg(all(target_os = "macos", not(test)))]
+mod system_settings;
 mod thumbs;
 mod tray;
 mod ui;
@@ -104,7 +109,12 @@ fn run(primary: instance::Primary, first: Option<Request>) {
     #[cfg(unix)]
     ignore_hangup();
     let (tx, mut rx) = unbounded::<Request>();
-    let app = gpui_kit::application().with_assets(ui::assets());
+    // GPUI quits with the last window on Linux and Windows by default;
+    // `last_window_closed` decides instead, so the tray can keep convt
+    // running.
+    let app = gpui_kit::application()
+        .with_assets(ui::assets())
+        .with_quit_mode(gpui_kit::QuitMode::Explicit);
     let urls = tx.clone();
     app.on_open_urls(move |links| {
         // The Finder extension's requests, and files opened with convt.
@@ -129,17 +139,19 @@ fn run(primary: instance::Primary, first: Option<Request>) {
         cx.set_app_identity("app.convt.desktop", "convt");
         gpui_kit::init(cx);
         ui::theme::init(cx);
+        ui::menus::init(cx);
         let state = cx.new(|cx| AppState::new(Arc::new(pack::Engines), Paths::from_env(), cx));
         #[cfg(target_os = "macos")]
         macos::init(&state, tx.clone(), cx);
         cx.set_global(Shared(state.clone()));
+        tray::init(&state, tray::platform::spawn, cx);
         cx.on_window_closed(last_window_closed).detach();
-        // One of the two network calls the app makes by itself: while signed in, at
-        // most once a day, ask convt.app for the current Pro key.
-        state.update(cx, |s, cx| s.renew_on_launch(cx));
-        // The other: when update checks are on, at most once a day, fetch the
-        // signed list of releases.
-        state.update(cx, |s, cx| s.check_updates_on_launch(cx));
+        // The two network calls the app makes by itself: while signed in, at
+        // most once a UTC day, the Pro key renewal; while automatic update
+        // checks are on, at launch and then every few hours, the signed list
+        // of releases. convt keeps running in the background, so both are
+        // looked at again on a schedule.
+        state.update(cx, |s, cx| s.start_update_checks(cx));
 
         primary.listen(move |req| drop(tx.unbounded_send(req)));
         cx.spawn(async move |cx| {
@@ -150,6 +162,12 @@ fn run(primary: instance::Primary, first: Option<Request>) {
         .detach();
         for req in initial_requests(first) {
             ui::route(req, cx);
+        }
+        // A launch that opened no window (a Finder or command-line
+        // conversion) stays out of the Dock while the tray keeps it running.
+        #[cfg(target_os = "macos")]
+        if cx.windows().is_empty() && tray::shown(cx) {
+            macos::show_in_dock(false);
         }
     });
     // In case the platform returns without running the quit observers.
@@ -169,59 +187,108 @@ fn initial_requests(first: Option<Request>) -> Vec<Request> {
     }
 }
 
-/// Quits with the last window, unless conversions are still running; then
-/// quits when they finish.
+/// After the last window closes, convt keeps running in the background
+/// when the tray icon is up. Otherwise it quits, or quits when the running
+/// conversions finish.
 fn last_window_closed(cx: &mut App, _: gpui_kit::WindowId) {
-    if !cx.windows().is_empty() {
-        return;
-    }
-    let state = model::shared(cx);
-    let keep_running = keep_running_without_windows(state.read(cx).settings.menu_bar_icon);
-    if keep_running {
-        // macOS keeps the process alive when the menu bar item is enabled.
-        // Calling cx.quit() from the window-closed observer starts GPUI's
-        // teardown while AppKit is still unwinding the last NSWindow; a
-        // deferred update callback can then cross that teardown boundary.
-        return;
-    }
-    if should_quit_after_last_window(keep_running, state.read(cx).queue.active()) {
-        state.update(cx, |s, cx| s.quit(cx));
-    } else {
-        state.update(cx, |s, _| s.quit_when_idle = true);
+    if cx.windows().is_empty() {
+        nothing_open(cx);
     }
 }
 
-fn should_quit_after_last_window(menu_bar_icon: bool, active_jobs: usize) -> bool {
-    !menu_bar_icon && active_jobs == 0
+/// No window is open: hide from the Dock if the tray keeps convt running,
+/// otherwise quit now or once the jobs are done.
+fn nothing_open(cx: &mut App) {
+    match after_last_window(cx) {
+        AfterLastWindow::KeepRunning => {
+            // Leave the Dock after AppKit has finished closing the window.
+            #[cfg(target_os = "macos")]
+            cx.spawn(async |cx| {
+                cx.update(|cx| {
+                    if cx.windows().is_empty() {
+                        macos::show_in_dock(false);
+                    }
+                })
+            })
+            .detach();
+        }
+        AfterLastWindow::Quit => {
+            // Calling cx.quit() from the window-closed observer starts GPUI's
+            // teardown while AppKit is still unwinding the last NSWindow; a
+            // deferred update callback can then cross that teardown boundary.
+            // Quit from a task instead, once the close has finished. Things
+            // may have changed by then (a window opened, a silent conversion
+            // or the tray icon arrived), so it decides again.
+            cx.spawn(async |cx| {
+                cx.update(|cx| {
+                    if cx.windows().is_empty() {
+                        settle(after_last_window(cx), cx);
+                    }
+                })
+            })
+            .detach();
+        }
+        AfterLastWindow::QuitWhenIdle => settle(AfterLastWindow::QuitWhenIdle, cx),
+    }
 }
 
-/// Only macOS has a menu bar mode that keeps the app alive without a window.
-fn keep_running_without_windows(menu_bar_icon: bool) -> bool {
-    cfg!(target_os = "macos") && menu_bar_icon
+/// What convt does with no window open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterLastWindow {
+    /// The tray icon keeps it running.
+    KeepRunning,
+    Quit,
+    /// Quit once the running conversions finish.
+    QuitWhenIdle,
+}
+
+fn after_last_window(cx: &App) -> AfterLastWindow {
+    let s = model::shared(cx).read(cx);
+    decide(
+        tray::keeps_running(s.settings.menu_bar_icon, cx),
+        s.queue.active(),
+    )
+}
+
+/// The rule itself. An update install isn't part of it: `menu::quit` waits
+/// for one to finish.
+fn decide(keep_running: bool, active_jobs: usize) -> AfterLastWindow {
+    match (keep_running, active_jobs) {
+        (true, _) => AfterLastWindow::KeepRunning,
+        (false, 0) => AfterLastWindow::Quit,
+        (false, _) => AfterLastWindow::QuitWhenIdle,
+    }
+}
+
+/// Acts on a decision made at the moment, without deferring again.
+fn settle(decision: AfterLastWindow, cx: &mut App) {
+    match decision {
+        AfterLastWindow::KeepRunning => {}
+        AfterLastWindow::Quit => menu::quit(cx),
+        AfterLastWindow::QuitWhenIdle => {
+            model::shared(cx).update(cx, |s, _| s.quit_when_idle = true);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn menu_bar_mode_keeps_the_process_alive_after_last_window() {
-        assert!(!super::should_quit_after_last_window(true, 0));
-        assert!(!super::should_quit_after_last_window(true, 2));
-        assert!(super::should_quit_after_last_window(false, 0));
-        assert!(!super::should_quit_after_last_window(false, 1));
+    fn the_tray_keeps_the_process_alive_after_last_window() {
+        use super::{AfterLastWindow::*, decide};
+        assert_eq!(decide(true, 0), KeepRunning);
+        assert_eq!(decide(true, 2), KeepRunning);
+        assert_eq!(decide(false, 0), Quit);
+        assert_eq!(decide(false, 1), QuitWhenIdle);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_retains_the_app_only_while_menu_bar_mode_is_enabled() {
-        assert!(super::keep_running_without_windows(true));
-        assert!(!super::keep_running_without_windows(false));
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn other_platforms_do_not_retain_the_app_for_menu_bar_mode() {
-        assert!(!super::keep_running_without_windows(true));
-        assert!(!super::keep_running_without_windows(false));
+    fn only_the_app_decides_to_quit_after_the_last_window() {
+        // GPUI's default quits on Linux and Windows as soon as the last
+        // window closes, before `last_window_closed` can keep convt running
+        // for the tray. The test platform doesn't do that, so check here.
+        let src = include_str!("main.rs");
+        assert!(src.contains(".with_quit_mode(gpui_kit::QuitMode::Explicit)"));
     }
 
     #[test]

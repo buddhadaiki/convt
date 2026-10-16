@@ -40,26 +40,25 @@ are reused on maintenance; they do not rewrite the app's menu format preferences
 
 ## Choose the formats
 
-In the app's Settings, open **Windows menu**. Enable or disable the menu, use
-the recommended formats, or choose a custom set. Quick targets must be reachable
-from every selected input and belong to the input's family: images/vectors,
-audio, video, or documents/PDF/spreadsheets/presentations. Video also offers GIF.
-For MP4, the default list is MOV, WebM, MKV and GIF when the installed engines
-support them. Extracting MP3 is available through **Mais**.
+Explorer offers the same formats as every other menu: the list for each kind
+of file in **Settings → Menu**, or `convt menu`, saved in `menu.toml` in the
+convt config directory. A kind nobody changed keeps convt's default list, and a
+file never offers its own format. Quick targets must be reachable from every
+selected input. Whether the menu appears at all is the installer's choice (its
+finish page and maintenance), not an app setting.
 
 **Mais** is the last submenu item. It opens Quick convert with the selected
 files, no chosen target and no automatic conversion. That window retains all
 compatible conversions, including those outside the quick menu or its custom
-format list. An empty custom set or an empty intersection leaves **Mais** alone.
-A disabled menu, an unknown extension, a folder selection or a failed CLI probe
-hide the command. Recognized files without an available engine can still open
+format list. An empty intersection leaves **Mais** alone. An unknown
+extension, a folder selection or a failed CLI probe hide the command. Recognized files without an available engine can still open
 the app through **Mais**, including its document-pack prompt. The next menu
 construction reads the saved preferences without a target cache.
 
 The handler asks the CLI beside its own DLL for
 `convt.exe targets <file> --menu --json`. The response contains `targets` (format
-IDs) and `more` (whether Mais is available); the text form of `--menu` still
-prints format IDs only. It never searches `PATH` or loads conversion
+IDs) and `more` (whether Mais is available, true for every recognized input);
+the text form of `--menu` prints the same IDs one per line. It never searches `PATH` or loads conversion
 engines into Explorer. Each query deduplicates files by extension, preserves
 the first file's menu order and intersects the targets across the selection.
 Probes run without a console, have a two-second deadline and bounded output.
@@ -108,7 +107,7 @@ Inspect the installed identity without changing it:
 ```
 
 To prove that the same COM object observes new preferences immediately, set
-`CONVT_CONFIG_DIR` to a fresh test directory with a `settings.toml`, then pass
+`CONVT_CONFIG_DIR` to a fresh test directory with a `menu.toml`, then pass
 `--refresh-settings <replacement.toml>` before the DLL path. The probe copies
 that replacement only to the explicitly supplied config directory and checks
 the refreshed targets and visibility. Keep test settings separate from the

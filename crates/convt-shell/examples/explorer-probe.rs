@@ -308,7 +308,7 @@ fn main() -> windows::core::Result<()> {
                 std::env::var_os("CONVT_CONFIG_DIR")
                     .expect("--refresh-settings requires an isolated CONVT_CONFIG_DIR"),
             );
-            std::fs::copy(replacement, config.join("settings.toml")).unwrap();
+            std::fs::copy(replacement, config.join("menu.toml")).unwrap();
             let refreshed = enumerate()?;
             assert_eq!(refreshed, expected_targets());
             let state = root.GetState(&items, true)?;
