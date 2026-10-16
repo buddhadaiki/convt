@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import gzip
 import shutil
@@ -117,13 +118,22 @@ def fetch(item, path):
             subprocess.run(['git', '-C', str(repository), 'archive', '--format=tar.gz',
                             '--output=' + str(downloaded), item['revision']], check=True, timeout=60)
         else:
-            start = time.monotonic()
-            request = urllib.request.Request(item['url'], headers={'User-Agent': 'convt-source-lock/1'})
-            with urllib.request.urlopen(request, timeout=45) as response, downloaded.open('wb') as stream:
-                while block := response.read(1024 * 1024):
-                    stream.write(block)
-                    if time.monotonic() - start > 180:
-                        raise TimeoutError('Source download exceeded 180 seconds')
+            # `mirrors` are permanent copies for URLs that rot (the Ubuntu pool);
+            # the digest below still decides.
+            for url in [item['url'], *item.get('mirrors', [])]:
+                try:
+                    start = time.monotonic()
+                    request = urllib.request.Request(url, headers={'User-Agent': 'convt-source-lock/1'})
+                    with urllib.request.urlopen(request, timeout=45) as response, downloaded.open('wb') as stream:
+                        while block := response.read(1024 * 1024):
+                            stream.write(block)
+                            if time.monotonic() - start > 180:
+                                raise TimeoutError('Source download exceeded 180 seconds')
+                    break
+                except OSError as error:
+                    print(f'{url}: {error}', file=sys.stderr)
+            else:
+                raise ValueError('No reachable URL: ' + item['cache_filename'])
         if retrieval.get('type') == 'canonical-gitiles-archive':
             # Gitiles and codeload regenerate archives on request, so their
             # bytes drift. Re-tar the members with fixed metadata and hash that.
