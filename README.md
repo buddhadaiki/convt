@@ -1,110 +1,86 @@
-<p align="center">
-  <a href="https://github.com/opencoredev/convt/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/opencoredev/convt/stars.svg?variant=branded&mode=dark" /></a>
-  <a href="https://x.com/leodev"><img alt="Follow @leodev on X" src="https://shieldcn.dev/x/follow/leodev.svg?variant=branded&mode=dark" /></a>
-</p>
+# convt (fork Windows)
 
-# convt
+Conversão local de imagens, vídeos, áudio, PDFs e documentos, pelo aplicativo ou pela linha de comando. Os arquivos são processados na sua máquina; as conversões locais não enviam seu conteúdo para um servidor.
 
-Local file conversion for your own machine. Right-click a file, pick a format, and convt writes the result next to the original. Images, video, audio, PDFs and documents stay on disk: nothing is uploaded.
+Este é o fork [buddhadaiki/convt](https://github.com/buddhadaiki/convt), com foco no instalador e na integração com o Windows x64. O projeto original é [opencoredev/convt](https://github.com/opencoredev/convt), criado por [Leo (@leodev)](https://x.com/leodev). O aplicativo usa Rust e [GPUI](https://www.gpui.rs); o mesmo registro de motores atende ao app e à CLI.
 
-- 42 formats, routed through native engines (FFmpeg, PDFium, LibreOffice, image, resvg)
-- A desktop app built with [GPUI](https://www.gpui.rs), with a Finder menu on macOS and file manager menus on Linux. The Windows Explorer menu is built (`crates/convt-shell`) but not yet in the release installer
-- The `convt` CLI, shipped in the same install
-- Multi-hop routes of at most three steps when no engine can convert directly
-- Optional document pack for Word, Excel and PowerPoint, installed only when you ask
-- A paid cloud API and TypeScript SDK for converting files on convt's servers
-- Accounts, checkout and downloads on [convt.app](https://convt.app)
+## Versão experimental para Windows x64
 
-## Install
+A versão experimental **0.5.1** deste fork parte do upstream 0.5.0. Consulte os arquivos na [release 0.5.1 do fork](https://github.com/buddhadaiki/convt/releases/tag/v0.5.1):
 
-macOS (Apple silicon) with Homebrew:
+- [Instalador MSI](https://github.com/buddhadaiki/convt/releases/download/v0.5.1/convt-0.5.1-windows-x86_64.msi): aplicativo, CLI e integração do Explorer, instalados por usuário.
+- [SHA-256 do MSI](https://github.com/buddhadaiki/convt/releases/download/v0.5.1/convt-0.5.1-windows-x86_64.msi.sha256): checksum do instalador.
+- [Pacote de documentos](https://github.com/buddhadaiki/convt/releases/download/v0.5.1/convt-0.5.1-windows-x86_64-documents.tar.gz) e seu [SHA-256](https://github.com/buddhadaiki/convt/releases/download/v0.5.1/convt-0.5.1-windows-x86_64-documents.tar.gz.sha256): suporte opcional, separado do MSI.
 
-```bash
-brew tap opencoredev/convt https://github.com/opencoredev/convt
-brew install --cask convt
+**O instalador é experimental e não tem assinatura Authenticode.** A coleta completa do código-fonte correspondente às dependências nativas FFmpeg/PDFium permanece pendente; [`inputs.lock.json`](packaging/windows/inputs.lock.json) mantém `distribution_ready=false`. A compilação de verificação não encerra essa pendência nem comprova que a distribuição está pronta. A preparação desta versão também não representa uma nova validação visual do aplicativo ou do menu do Explorer. Veja os limites e o histórico no [guia de empacotamento Windows](packaging/windows/README.md).
+
+A suíte Rust registra uma falha conhecida no teste sintético de orientação HEIC com transparência, reproduzida também com as DLLs anteriores. O relatório de validação da release preserva essa falha; ela não comprova um defeito em HEIC reais nem uma regressão desta versão.
+
+Baixe o MSI e seu checksum da mesma release. No PowerShell, dentro da pasta de download:
+
+```powershell
+$arquivo = '.\convt-0.5.1-windows-x86_64.msi'
+$esperado = ((Get-Content -LiteralPath "$arquivo.sha256" -Raw).Trim() -split '\s+')[0]
+$calculado = (Get-FileHash -LiteralPath $arquivo -Algorithm SHA256).Hash
+if ($calculado -ne $esperado) { throw 'SHA-256 diferente: não execute o instalador.' }
 ```
 
-That installs the signed app and puts the `convt` CLI on your `PATH`. Download the app from [convt.app/download](https://convt.app/download) for a disk image, Windows MSI, or Linux packages. There is no Linux Homebrew formula yet; use the `.deb`, `.rpm` or AppImage. Packaged builds start a 7-day trial on the first conversion.
+Com os hashes iguais, abra o MSI. A instalação oferece opções de menu de contexto e atalho; as configurações e o histórico do aplicativo são preservados na desinstalação.
 
-To build from source:
+## Explorer e Quick convert
 
-```bash
-bun run setup
+Clique com o botão direito em um arquivo e escolha **Convert with convt**. O menu clássico também fica em **Mostrar mais opções** no Windows 11. O menu principal do Windows 11 depende do **Modo de Desenvolvedor já habilitado** e da validação da identidade Appx e da ativação COM; o instalador não altera essa configuração, políticas ou confiança em certificados.
+
+Os destinos rápidos seguem **Settings → Menu** ou `convt menu`. **Mais** abre Quick convert com os arquivos selecionados e os destinos compatíveis, aguardando sua escolha e o comando de conversão. As preferências do menu não limitam as conversões disponíveis na CLI ou em Quick convert. Consulte os detalhes da [integração com o Explorer](integrations/windows/README.md).
+
+## Alterações mantidas neste fork
+
+- Recuperação transacional da integração do instalador e preservação dos dados de recuperação quando a limpeza falha. O histórico registra uma falha do Windows Installer ao restaurar seus próprios metadados; o rollback completo do MSI permanece sem comprovação nesse cenário.
+- Supervisão dos auxiliares do instalador por Job Object, encerrando e aguardando os processos descendentes antes da compensação em cancelamento ou timeout.
+- Downloads de empacotamento com espelhos e verificação SHA-256, recusando arquivos incorretos e parciais, com testes de regressão para espelhos e integridade do cache.
+- Leitura de MPEG (`.mpg`, `.mpeg`, incluindo vídeo elementar) e `.mpg4`, com regressões de conversão. Esses formatos são entradas, não destinos de saída.
+
+## Uso pela CLI
+
+O MSI não adiciona a CLI ao `PATH`. No PowerShell, use o executável na pasta escolhida na instalação. Para a pasta padrão:
+
+```powershell
+$convt = Join-Path $env:LOCALAPPDATA 'Programs\convt\convt.exe'
+& $convt photo.png --to webp
+& $convt clip.mpg --to mp4
+& $convt photos/ --to webp -r
+& $convt lease.pdf --to png --pages 1-3
+& $convt engines
+& $convt targets photo.heic
+& $convt targets photo.heic --menu
+& $convt formats
+& $convt presets
+& $convt menu show
+& $convt pack status documents
+```
+
+O resultado é salvo ao lado da entrada, salvo uso de `--out-dir`. `convt --help` lista as opções de qualidade, tamanho, páginas, DPI, vídeo e paralelismo. Os destinos dependem dos motores disponíveis: FFmpeg, PDFium, LibreOffice, image, resvg e libheif.
+
+O suporte a Word, Excel e PowerPoint usa LibreOffice do sistema ou o pacote opcional de documentos. Quando a release oferecer esse pacote, `convt pack install documents` baixa o arquivo configurado na compilação e verifica seu SHA-256 antes de instalar. Ele não faz parte do MSI e não é baixado automaticamente pelos motores. Compilações de fonte podem usar LibreOffice local ou uma origem explícita com `--source` e `--sha256`.
+
+## Compilar a partir do código
+
+No Windows, veja os pré-requisitos e o script de preparação em [`scripts/setup-windows.ps1`](scripts/setup-windows.ps1). Esse script instala ferramentas e dependências de desenvolvimento. Com o ambiente preparado:
+
+```powershell
 cargo run -p convt-cli -- photo.png --to webp
+cargo build --release -p convt-cli -p convt-app -p convt-shell
 ```
 
-`bun run setup` installs system packages (asks for sudo on Linux and macOS), the Rust toolchain, Bun dependencies and PDFium. On Windows run `scripts/setup-windows.ps1` in PowerShell. Ordinary source builds are unrestricted.
+O MSI exige também os motores nativos, os recursos de identidade e o empacotamento descritos no [guia Windows](packaging/windows/README.md). Build, testes sem interface e validação do aplicativo aberto são verificações distintas.
 
-## Usage
+- [AGENTS.md](AGENTS.md): estrutura do repositório, convenções e validação.
+- [Integração Windows](integrations/windows/README.md): menus, configuração e probes.
+- [Guia de releases](docs/release.md): artefatos, fontes correspondentes e verificações de distribuição.
+- [Inventário de licenças](docs/licence-inventory.md): dependências e pendências de distribuição.
 
-```bash
-convt clip.mov --to mp4
-convt photos/ --to webp -r
-convt lease.pdf --to png --pages 1-3
-```
+## Créditos e licença
 
-From a checkout, prefix those with `cargo run -p convt-cli --`. Output lands next to each input unless you pass `--out-dir`.
+Código sob [GNU AGPL-3.0-only](LICENSE), preservando os créditos do projeto original e os avisos das dependências. O nome **convt** e seu logotipo são marcas e não estão cobertos pela licença do código.
 
-## Engines
-
-convt registers whatever can run on this machine and picks a route:
-
-- **FFmpeg** for video and audio (MP4, MOV, WebM, MKV, AVI, MP3, WAV, FLAC, AAC, M4A, OGG, Opus)
-- **LibreOffice** for Word, Excel, PowerPoint and their open formats, and for saving any of them as PDF
-- **PDFium** to render PDF pages to PNG or JPEG
-- **image** and **resvg** for photos and SVG (JPEG, PNG, WebP, AVIF, GIF, TIFF, BMP, ICO, TGA, PPM, QOI, OpenEXR)
-- **libheif**, or `sips` on macOS, for HEIC
-
-Office files need LibreOffice on `PATH`. Released Windows builds can also run `convt pack install documents`, which downloads the pinned pack from the GitHub release and verifies its checksum. Ordinary source builds need a system LibreOffice, or an explicit `--source` and `--sha256`. The engines never start that download themselves.
-
-## CLI
-
-```bash
-convt engines              # backends available here
-convt targets photo.heic   # formats this file can reach
-convt targets photo.heic --menu
-convt formats
-convt presets
-convt pack status documents
-convt --skill              # SKILL.md for AI coding agents (also: convt skill)
-```
-
-`convt --help` lists quality, size, pages, DPI, video and job flags. See [AGENTS.md](AGENTS.md) for the rest of the commands in this repo.
-
-## Cloud API
-
-The cloud API converts files on convt's servers for a paid plan. You upload a file, start a job, and download the result. [`@convt/sdk`](packages/sdk) wraps those calls in TypeScript but is not on npm yet; see the [API docs](https://convt.app/docs) for keys, the host to call and the full reference. The API is `crates/convt-server`, and conversions run in sandboxed `crates/convt-worker` processes using the same engines as the app.
-
-## Documentation
-
-- **[convt.app](https://convt.app)**: product site, pricing and sign-in
-- **[Download](https://convt.app/download)**: desktop builds and matching source archives
-- **[Formats](https://convt.app/formats)**: every format and the targets it can reach
-- **[API docs](https://convt.app/docs)**: the cloud API, the SDK and the API reference
-- **[AGENTS.md](AGENTS.md)**: repo layout, conventions, and how to check, test and build
-
-## License
-
-convt is open source under the [GNU AGPL v3](LICENSE). The signed desktop builds, convt Cloud and the API are paid. "convt" and the convt logo are trademarks and are not covered by the code license.
-
-## Sponsors
-
-Want your logo here? **[Become a sponsor →](https://github.com/sponsors/opencoredev)**
-
-<p align="center">
-  <a href="https://github.com/sponsors/opencoredev">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/sponsors/opencoredev.svg?special=resend,instatushq,primitivedotdev,lettermint&title=false&mode=dark&preset=surface" />
-      <source media="(prefers-color-scheme: light)" srcset="https://shieldcn.dev/sponsors/opencoredev.svg?special=resend,instatushq,primitivedotdev,lettermint&title=false&mode=light&preset=surface" />
-      <img alt="Sponsors" src="https://shieldcn.dev/sponsors/opencoredev.svg?special=resend,instatushq,primitivedotdev,lettermint&title=false&mode=dark&preset=surface" width="820" />
-    </picture>
-  </a>
-</p>
-
-## Star History
-
-<p align="center">
-  <a href="https://github.com/opencoredev/convt/stargazers"><img alt="Star history" src="https://shieldcn.dev/chart/github/stars/opencoredev/convt.svg?mode=dark" /></a>
-</p>
-
-<p align="center"><sub><a href="./LICENSE">AGPL-3.0</a> · Built by <a href="https://x.com/leodev">@leodev</a></sub></p>
+Este fork mantém os mecanismos existentes de avaliação e licença. As políticas comerciais, os planos e os serviços oficiais pertencem ao projeto original; consulte [convt.app](https://convt.app) e a [documentação oficial](https://convt.app/docs). A API cloud é um serviço separado que recebe os arquivos enviados pelo cliente.

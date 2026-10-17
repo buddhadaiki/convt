@@ -34,7 +34,7 @@ actions!(
 pub const DOCS_URL: &str = "https://convt.app/docs";
 pub const SUPPORT_URL: &str = "https://convt.app/contact";
 pub const CHANGELOG_URL: &str = "https://convt.app/changelog";
-pub const SOURCE_URL: &str = "https://github.com/opencoredev/convt";
+pub const SOURCE_URL: &str = "https://github.com/buddhadaiki/convt";
 
 /// The menu bar, left to right.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

@@ -31,7 +31,7 @@
     },
     "apps/desktop": {
       "name": "@convt/desktop",
-      "version": "0.3.0",
+      "version": "0.5.1",
     },
     "apps/docs": {
       "name": "@convt/docs",
@@ -53,7 +53,7 @@
     },
     "apps/web": {
       "name": "@convt/web",
-      "version": "0.3.0",
+      "version": "0.5.1",
       "dependencies": {
         "@convt/billing": "workspace:*",
         "@convt/db": "workspace:*",
@@ -169,7 +169,7 @@
     },
     "tools/cli": {
       "name": "@convt/cli",
-      "version": "0.3.0",
+      "version": "0.5.1",
     },
     "tools/loadtest": {
       "name": "@convt/loadtest",
