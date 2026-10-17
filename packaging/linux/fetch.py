@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fetch only locked build inputs; verify even previously cached files."""
 import hashlib
+import http.client
 import json
 import pathlib
 import sys
@@ -21,8 +22,10 @@ def download(item, path):
             with urllib.request.urlopen(url, timeout=45) as response, partial.open('wb') as output:
                 while block := response.read(1024 * 1024):
                     output.write(block)
-        except OSError as error:
-            print(f'{url}: {error}', file=sys.stderr)
+        except (OSError, http.client.HTTPException) as error:
+            # http.client errors such as IncompleteRead are not OSErrors.
+            partial.unlink(missing_ok=True)
+            print(f'{url}: {error!r}', file=sys.stderr)
             continue
         if sha256(partial) == item['sha256']:
             partial.rename(path)
