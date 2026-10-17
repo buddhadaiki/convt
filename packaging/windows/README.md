@@ -22,6 +22,11 @@ Windows client default (Restricted) refuses every `-File` script and would fail
 both install and uninstall; a Group Policy execution policy still overrides it
 and needs signed helpers.
 
+The native dispatcher assigns each helper to a Job Object before its first
+instruction. Cancellation, timeout and normal helper exit stop and reap the
+entire process tree before transaction compensation can begin. Closing the
+controller also terminates descendants, including a blocked COM activation probe.
+
 Registration and removal run as the installing user with checked errors and
 paired rollback. Upgrades snapshot the validated previous identity before
 Windows Installer removes the old payload inside its transaction. The embedded
@@ -31,6 +36,10 @@ files lets rollback register the previous identity before MSI restores the
 remaining runtime files. Restores check hashes and never overwrite divergent
 files. The early `RemoveExistingProducts` action precedes every in-script
 custom action, including the rollback action.
+Maintenance that would remove an existing loose identity requires Developer Mode
+to remain enabled so rollback can register the saved manifest. If it was disabled
+after installation, the helper refuses before changing the menu, desktop shortcut
+or installer preferences, preserving the previous identity.
 Commit actions only discard recovery files: cleanup errors are logged without
 rolling back a successful installation using a partially removed backup.
 Final-page configuration uses a new transaction GUID for each invocation, so

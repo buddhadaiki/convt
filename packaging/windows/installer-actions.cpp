@@ -7,6 +7,8 @@
 #include <objbase.h>
 #include <userenv.h>
 
+#include "installer-process.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cwctype>
@@ -490,21 +492,8 @@ private:
     BY_HANDLE_FILE_INFORMATION identity_{};
 };
 
-void stop_and_reap(HANDLE process) {
-    const DWORD state = WaitForSingleObject(process, 0);
-    if (state == WAIT_OBJECT_0) return;
-    if (state == WAIT_FAILED) fail(L"Could not inspect the owned PowerShell process");
-    if (!TerminateProcess(process, ERROR_INSTALL_FAILURE)) {
-        const DWORD error = GetLastError();
-        if (WaitForSingleObject(process, 0) != WAIT_OBJECT_0) fail(L"Could not stop the owned PowerShell process", error);
-    }
-    // TerminateProcess is asynchronous. Do not compensate the journal while
-    // the process can still be executing changes in the installation root.
-    if (WaitForSingleObject(process, INFINITE) != WAIT_OBJECT_0) fail(L"Could not reap the owned PowerShell process");
-}
-
 void run_script(MSIHANDLE installer, const wchar_t* action, const Options& selected, const EffectiveUser& user,
-                const std::wstring& directory, bool allow_cancel = true, bool* child_reaped = nullptr) {
+                const std::wstring& directory, bool allow_cancel = true, bool* child_reaped = nullptr) try {
     if (child_reaped) *child_reaped = false;
     wchar_t system_directory[MAX_PATH]{};
     const UINT length = GetSystemDirectoryW(system_directory, MAX_PATH);
@@ -532,50 +521,40 @@ void run_script(MSIHANDLE installer, const wchar_t* action, const Options& selec
         command += quote_argument(argument);
     }
     if (command.size() >= 32767) throw Failure(L"Installer helper command exceeds the Windows command line limit.");
-    std::vector<wchar_t> mutable_command(command.begin(), command.end());
-    mutable_command.push_back(L'\0');
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION created{};
     UserEnvironment environment(user);
     DWORD flags = CREATE_NO_WINDOW;
     if (environment.get()) flags |= CREATE_UNICODE_ENVIRONMENT;
     // CreateProcess ignores a thread's impersonation token. Deferred MSI
     // actions must explicitly launch as that user, never as the MSI server.
-    const BOOL launched = user.impersonated ?
-        CreateProcessAsUserW(user.token.get(), powershell.c_str(), mutable_command.data(), nullptr, nullptr,
-                             FALSE, flags, environment.get(), directory.c_str(), &startup, &created) :
-        CreateProcessW(powershell.c_str(), mutable_command.data(), nullptr, nullptr, FALSE, flags,
-                       environment.get(), directory.c_str(), &startup, &created);
-    if (!launched) {
-        fail(L"Could not start the installer PowerShell helper");
-    }
-    Handle process(created.hProcess);
-    Handle thread(created.hThread);
+    convt::installer::ProcessTree process;
+    process.start(powershell, command, flags, environment.get(), directory.c_str(),
+                  user.impersonated ? user.token.get() : nullptr);
     const ULONGLONG started = GetTickCount64();
     try {
         for (;;) {
-            const DWORD state = WaitForSingleObject(process.get(), 1000);
+            const DWORD state = WaitForSingleObject(process.process(), 1000);
             if (state == WAIT_OBJECT_0) break;
             if (state == WAIT_FAILED) fail(L"Could not wait for the installer PowerShell helper");
             if (GetTickCount64() - started >= process_timeout_ms) {
-                stop_and_reap(process.get());
                 throw Failure(L"The installer PowerShell helper exceeded the 180 second time limit.");
             }
             progress(installer, 2, 0, allow_cancel);
         }
-        if (child_reaped) *child_reaped = true;
-        result_log.emit(installer);
-        DWORD exit_code = ERROR_INSTALL_FAILURE;
-        if (!GetExitCodeProcess(process.get(), &exit_code)) fail(L"Could not read the installer PowerShell helper result");
-        if (exit_code != ERROR_SUCCESS) {
-            throw Failure(L"The installer PowerShell helper failed with exit code " + std::to_wstring(exit_code) + L".");
-        }
     } catch (...) {
-        stop_and_reap(process.get());
+        process.stop_and_reap();
         if (child_reaped) *child_reaped = true;
         throw;
     }
+    process.stop_and_reap();
+    if (child_reaped) *child_reaped = true;
+    result_log.emit(installer);
+    DWORD exit_code = ERROR_INSTALL_FAILURE;
+    if (!GetExitCodeProcess(process.process(), &exit_code)) fail(L"Could not read the installer PowerShell helper result");
+    if (exit_code != ERROR_SUCCESS) {
+        throw Failure(L"The installer PowerShell helper failed with exit code " + std::to_wstring(exit_code) + L".");
+    }
+} catch (const convt::installer::ProcessError& error) {
+    fail(error.operation(), error.code());
 }
 
 UINT dispatch(MSIHANDLE installer, const wchar_t* action, bool immediate, bool configure = false) noexcept {
@@ -619,7 +598,7 @@ UINT dispatch(MSIHANDLE installer, const wchar_t* action, bool immediate, bool c
             if (configure && child_reaped) {
                 // Configure runs after InstallFinalize. Its own journal is the
                 // only rollback boundary, including cancellation or timeout.
-                // run_script has already stopped/reaped the original child.
+                // run_script has already stopped/reaped the entire process job.
                 try {
                     log_message(installer, INSTALLMESSAGE_INFO, L"convt: compensating failed final configuration.");
                     run_script(installer, L"Rollback", selected, user, directory, false);

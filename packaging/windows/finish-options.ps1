@@ -438,6 +438,14 @@ function Assert-ConvtUnattemptedBaseline {
 
 function New-ConvtFinishJournal {
     param([string]$Root, [string]$PreviousRoot, [guid]$Id, [string]$Operation)
+    $beforeRoot = if ($PreviousRoot) { $PreviousRoot } else { $Root }
+    $beforePackage = Get-ConvtFinishPackageSnapshot -Root $beforeRoot
+    # Prepare precedes RemoveExistingProducts, even for an upgrade at the same
+    # path. Require recoverability before MSI can remove the previous payload
+    # or this helper replaces an existing recovery snapshot.
+    if ($beforePackage -and -not (Test-ConvtDeveloperMode)) {
+        throw 'Developer Mode must remain enabled to prepare safe rollback of this loose package.'
+    }
     $existing = Read-ConvtFinishJournal -Root $Root -Id $Id
     if ($existing) {
         if ($Operation -ne 'Apply') { throw 'An earlier installer integration transaction needs rollback or commit.' }
@@ -447,11 +455,10 @@ function New-ConvtFinishJournal {
         Assert-ConvtUnattemptedBaseline -Journal $existing
         Remove-ConvtFinishJournal -Root $Root -Id $Id
     }
-    $beforeRoot = if ($PreviousRoot) { $PreviousRoot } else { $Root }
     $record = [pscustomobject]@{ Name='Convt.Desktop'; Publisher='CN=Convt Local'; InstallationRoot=$Root
         BeforeRoot=$beforeRoot; TransactionId=$Id.ToString('D').ToLowerInvariant(); Operation=$Operation; Attempted=$false
         BeforeFiles=@()
-        BeforePackage=(Get-ConvtFinishPackageSnapshot -Root $beforeRoot)
+        BeforePackage=$beforePackage
         LegacyBefore=(Get-ConvtLegacyMenu -Root $beforeRoot)
         LegacyBackupBefore=(Read-ConvtLegacyBackup -Root $beforeRoot)
         ShortcutBefore=(Get-ConvtOwnedDesktopShortcut -Root $beforeRoot)
@@ -570,6 +577,11 @@ function Apply-ConvtFinishOptions {
     $packages = @(Select-ConvtIdentityPackages -Packages @(Get-ConvtInstalledPackages))
     foreach ($package in $packages) { Assert-ConvtFinishPackageOwnership -Package $package -Journal $Journal }
     if ($packages.Count -gt 1) { throw 'Multiple convt identity packages were found.' }
+    # Developer Mode can change after Prepare. Recheck before any menu,
+    # shortcut or preference mutation could require restoring the old identity.
+    if ($Journal.BeforePackage -and -not (Test-ConvtDeveloperMode)) {
+        throw 'Developer Mode must remain enabled to prepare safe rollback of this loose package.'
+    }
     $Journal.Attempted = $true
     Write-ConvtFinishJournal -Record $Journal -Root $root -Id ([guid]$Journal.TransactionId)
     if ($oldShortcut) { Remove-ConvtOwnedDesktopShortcut -Root $oldShortcut.Root }

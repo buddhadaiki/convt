@@ -95,6 +95,7 @@ function Get-ConvtPackageExternalRoot {
 function Register-ConvtIdentity {
  param($ManifestPath,$Root,$SignedPath)
  $script:Events.Add('register:'+ $Root)
+ if (-not $case.developer) {throw 'Loose package registration requires Developer Mode.'}
  if ($case.registerFail -and $Root -ieq $case.root) {throw 'registration failed'}
  $document=Read-ConvtMenuManifest -Path $ManifestPath
  $version=$document.GetElementsByTagName('Identity').Item(0).GetAttribute('Version')
@@ -150,6 +151,7 @@ foreach ($step in $case.steps) {
  }
  if ($step.changePreferences) {$script:PreferenceValues['ContextMenu']='0'}
  if ($null -ne $step.activationFail) {$case.activationFail=$step.activationFail}
+ if ($null -ne $step.developer) {$case.developer=$step.developer}
  try {
   Invoke-ConvtFinishOptions -Action $step.action -Root $case.root -PreviousRoot $case.previousRoot -Id ([guid]$step.id) -Menu:($step.menu) -Desktop:($step.desktop) -HoldTransaction:($step.hold)
   $results += @{ok=$true}
@@ -200,7 +202,7 @@ class NativeDispatcherCommandLine(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "nt" and POWERSHELL, "requires Windows PowerShell for mocked lifecycle")
 class FinishOptions(unittest.TestCase):
-    def run_case(self, *, upgrade=False, steps=None, **changes):
+    def run_case(self, *, upgrade=False, installed=False, steps=None, **changes):
         scratch = HERE.parents[1] / "tmp"
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="finish-options-test-", dir=scratch) as folder:
@@ -223,8 +225,11 @@ class FinishOptions(unittest.TestCase):
             if upgrade:
                 case["packages"] = [dict(Name="Convt.Desktop", Publisher="CN=Convt Local", Version="0.3.4.0",
                                          InstallLocation=str(before / "identity"), ExternalRoot=str(before), PackageFullName=OLD)]
+            elif installed:
+                case["packages"] = [dict(Name="Convt.Desktop", Publisher="CN=Convt Local", Version="0.3.5.0",
+                                         InstallLocation=str(root / "identity"), ExternalRoot=str(root), PackageFullName=NEW)]
             case["steps"] = [{"menu": True, "desktop": False, "hold": False, "hideOld": False, "restoreOld": False,
-                              "activationFail": None, "tamperBackup": False, "foreignOldFile": False,
+                              "activationFail": None, "developer": None, "tamperBackup": False, "foreignOldFile": False,
                               "extraBackupFile": False, "changePreferences": False,
                               "id": TX,
                               **step} for step in steps or [dict(action="Configure")]]
@@ -368,13 +373,123 @@ class FinishOptions(unittest.TestCase):
                 self.assertTrue(all(row["ok"] for row in result["results"]), result)
                 self.assertEqual(result["shortcut"], "shortcut:" + result["root"] if desktop else None)
 
-    def test_classic_fallback_removes_old_package(self):
-        for change in (dict(build=19045), dict(developer=False)):
-            result = self.run_case(upgrade=True, steps=[dict(action="Prepare"), dict(action="Apply"), dict(action="Commit")], **change)
-            self.assertTrue(all(row["ok"] for row in result["results"]), result)
-            self.assertEqual(result["packages"], [])
-            self.assertEqual(result["legacy"]["InstallationRoot"], result["root"])
-            self.assertNotIn("activate-modern", result["events"])
+    def test_classic_fallback_removes_recoverable_old_package(self):
+        result = self.run_case(upgrade=True, build=19045,
+                               steps=[dict(action="Prepare"), dict(action="Apply"), dict(action="Commit")])
+        self.assertTrue(all(row["ok"] for row in result["results"]), result)
+        self.assertEqual(result["packages"], [])
+        self.assertEqual(result["legacy"]["InstallationRoot"], result["root"])
+        self.assertNotIn("activate-modern", result["events"])
+
+    def test_prepare_rejects_unrecoverable_upgrade_before_payload_removal(self):
+        result = self.run_case(upgrade=True, developer=False, legacy=False, preferences=True, shortcut=True,
+                               steps=[dict(action="Prepare")])
+        self.assertFalse(result["results"][0]["ok"], result)
+        self.assertIn("Developer Mode", result["results"][0]["error"])
+        self.assertEqual(result["packages"], [OLD])
+        self.assertEqual(result["shortcut"], "shortcut:" + result["oldRoot"])
+        self.assertEqual(result["preferences"]["InstallationRoot"], result["oldRoot"])
+        self.assertEqual(result["events"], [])
+        self.assertFalse(result["marker"])
+        self.assertFalse(result["backup"])
+
+    def test_disabled_developer_mode_preserves_previous_package_before_apply(self):
+        for menu in (False, True):
+            with self.subTest(menu=menu):
+                result = self.run_case(upgrade=True, legacy=False, preferences=True, shortcut=True, steps=[
+                    dict(action="Prepare"), dict(action="Apply", menu=menu, hold=True, developer=False),
+                    dict(action="Rollback"),
+                ])
+                self.assertTrue(result["results"][0]["ok"], result)
+                self.assertFalse(result["results"][1]["ok"], result)
+                self.assertIn("Developer Mode", result["results"][1]["error"])
+                self.assertTrue(result["results"][2]["ok"], result)
+                self.assertEqual(result["packages"], [OLD])
+                self.assertEqual(result["shortcut"], "shortcut:" + result["oldRoot"])
+                self.assertEqual(result["preferences"]["InstallationRoot"], result["oldRoot"])
+                self.assertEqual(result["preferences"]["DesktopShortcut"], "1")
+                self.assertIsNone(result["legacy"])
+                self.assertEqual(result["events"], [])
+                self.assertFalse(result["marker"])
+
+    def test_disabled_developer_mode_preserves_previous_package_before_remove(self):
+        result = self.run_case(installed=True, preferences=True, shortcut=True, steps=[
+            dict(action="Prepare"), dict(action="Remove", hold=True, developer=False), dict(action="Rollback"),
+        ])
+        self.assertTrue(result["results"][0]["ok"], result)
+        self.assertFalse(result["results"][1]["ok"], result)
+        self.assertIn("Developer Mode", result["results"][1]["error"])
+        self.assertTrue(result["results"][2]["ok"], result)
+        self.assertEqual(result["packages"], [NEW])
+        self.assertEqual(result["shortcut"], "shortcut:" + result["root"])
+        self.assertEqual(result["preferences"]["ContextMenu"], "1")
+        self.assertEqual(result["preferences"]["DesktopShortcut"], "1")
+        self.assertEqual(result["legacy"]["InstallationRoot"], result["root"])
+        self.assertEqual(result["events"], [])
+        self.assertFalse(result["marker"])
+
+    def test_disabled_developer_mode_preserves_previous_package_before_configure(self):
+        for menu in (False, True):
+            with self.subTest(menu=menu):
+                result = self.run_case(installed=True, developer=False, preferences=True, shortcut=True,
+                                       steps=[dict(action="Configure", menu=menu)])
+                self.assertFalse(result["results"][0]["ok"], result)
+                self.assertIn("Developer Mode", result["results"][0]["error"])
+                self.assertEqual(result["packages"], [NEW])
+                self.assertEqual(result["shortcut"], "shortcut:" + result["root"])
+                self.assertEqual(result["preferences"]["ContextMenu"], "1")
+                self.assertEqual(result["preferences"]["DesktopShortcut"], "1")
+                self.assertEqual(result["legacy"]["InstallationRoot"], result["root"])
+                self.assertEqual(result["events"], [])
+                self.assertFalse(result["marker"])
+
+    def test_developer_mode_off_without_package_keeps_classic_menu_options_working(self):
+        for menu in (False, True):
+            for desktop in (False, True):
+                with self.subTest(menu=menu, desktop=desktop):
+                    result = self.run_case(developer=False,
+                                           steps=[dict(action="Configure", menu=menu, desktop=desktop)])
+                    self.assertTrue(result["results"][0]["ok"], result)
+                    self.assertEqual(result["packages"], [])
+                    self.assertEqual(bool(result["legacy"]), menu)
+                    self.assertEqual(bool(result["shortcut"]), desktop)
+                    self.assertEqual(result["preferences"]["ContextMenu"], str(int(menu)))
+                    self.assertEqual(result["preferences"]["DesktopShortcut"], str(int(desktop)))
+                    self.assertFalse(result["marker"])
+
+    def test_developer_mode_off_without_package_allows_install_and_uninstall(self):
+        result = self.run_case(developer=False, steps=[
+            dict(action="Prepare"), dict(action="Apply", desktop=True, hold=True), dict(action="Commit"),
+            dict(action="Prepare"), dict(action="Remove", hold=True), dict(action="Commit"),
+        ])
+        self.assertTrue(all(row["ok"] for row in result["results"]), result)
+        self.assertEqual(result["packages"], [])
+        self.assertIsNone(result["legacy"])
+        self.assertIsNone(result["shortcut"])
+        self.assertIsNone(result["preferences"])
+        self.assertFalse(result["marker"])
+        self.assertFalse(result["backup"])
+
+    def test_prepare_rejects_registered_package_without_developer_mode(self):
+        result = self.run_case(installed=True, developer=False, preferences=True, shortcut=True,
+                               steps=[dict(action="Prepare")])
+        self.assertFalse(result["results"][0]["ok"], result)
+        self.assertIn("Developer Mode", result["results"][0]["error"])
+        self.assertEqual(result["packages"], [NEW])
+        self.assertEqual(result["shortcut"], "shortcut:" + result["root"])
+        self.assertEqual(result["events"], [])
+        self.assertFalse(result["marker"])
+        self.assertFalse(result["backup"])
+
+    def test_rollback_preserves_registered_package_when_developer_mode_turns_off(self):
+        result = self.run_case(installed=True, preferences=True, shortcut=True,
+                               steps=[dict(action="Prepare"), dict(action="Rollback", developer=False)])
+        self.assertTrue(all(row["ok"] for row in result["results"]), result)
+        self.assertEqual(result["packages"], [NEW])
+        self.assertEqual(result["shortcut"], "shortcut:" + result["root"])
+        self.assertEqual(result["events"], [])
+        self.assertFalse(result["marker"])
+        self.assertFalse(result["backup"])
 
     def test_foreign_desktop_shortcut_is_preserved(self):
         result = self.run_case(foreignShortcut=True, steps=[dict(action="Configure", desktop=True)])
