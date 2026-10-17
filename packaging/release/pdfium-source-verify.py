@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -118,8 +119,9 @@ def fetch(item, path):
             subprocess.run(['git', '-C', str(repository), 'archive', '--format=tar.gz',
                             '--output=' + str(downloaded), item['revision']], check=True, timeout=60)
         else:
-            # `mirrors` are permanent copies for URLs that rot (the Ubuntu pool);
-            # the digest below still decides.
+            # `mirrors` are permanent copies for URLs that rot (the Ubuntu pool).
+            # Each candidate must match the digest before the next is skipped:
+            # a host can answer 200 with an error page.
             for url in [item['url'], *item.get('mirrors', [])]:
                 try:
                     start = time.monotonic()
@@ -129,29 +131,44 @@ def fetch(item, path):
                             stream.write(block)
                             if time.monotonic() - start > 180:
                                 raise TimeoutError('Source download exceeded 180 seconds')
-                    break
-                except OSError as error:
-                    print(f'{url}: {error}', file=sys.stderr)
-            else:
-                raise ValueError('No reachable URL: ' + item['cache_filename'])
-        if retrieval.get('type') == 'canonical-gitiles-archive':
-            # Gitiles and codeload regenerate archives on request, so their
-            # bytes drift. Re-tar the members with fixed metadata and hash that.
-            canonical = Path(temporary) / 'canonical.tar.gz'
-            canonicalize(
-                downloaded,
-                canonical,
-                sort_members=bool(retrieval.get('sort_members')),
-                drop_members=tuple(retrieval.get('drop_members', ())),
-            )
-            downloaded = canonical
-        elif retrieval.get('type') == 'canonical-github-release':
-            canonical = Path(temporary) / 'canonical.json'
-            canonical_release(downloaded, canonical)
-            downloaded = canonical
+                except (OSError, http.client.HTTPException) as error:
+                    print(f'{url}: {error!r}', file=sys.stderr)
+                    continue
+                try:
+                    candidate = canonical_form(downloaded, retrieval, Path(temporary))
+                except (tarfile.TarError, EOFError, OSError, ValueError, KeyError) as error:
+                    # Not the archive or release JSON this entry locks.
+                    print(f'{url}: unusable download: {error!r}', file=sys.stderr)
+                    continue
+                if digest(candidate) == item['sha256']:
+                    candidate.replace(path)
+                    return
+                print(f'{url}: SHA-256 mismatch', file=sys.stderr)
+            raise ValueError('Downloaded SHA-256 mismatch or no reachable URL: ' + item['cache_filename'])
+        downloaded = canonical_form(downloaded, retrieval, Path(temporary))
         if digest(downloaded) != item['sha256']:
             raise ValueError('Downloaded SHA-256 mismatch: ' + item['cache_filename'])
         downloaded.replace(path)
+
+
+def canonical_form(downloaded, retrieval, temporary):
+    """The bytes a lock's digest covers: the download itself, or its canonical archive."""
+    if retrieval.get('type') == 'canonical-gitiles-archive':
+        # Gitiles and codeload regenerate archives on request, so their
+        # bytes drift. Re-tar the members with fixed metadata and hash that.
+        canonical = temporary / 'canonical.tar.gz'
+        canonicalize(
+            downloaded,
+            canonical,
+            sort_members=bool(retrieval.get('sort_members')),
+            drop_members=tuple(retrieval.get('drop_members', ())),
+        )
+        return canonical
+    if retrieval.get('type') == 'canonical-github-release':
+        canonical = temporary / 'canonical.json'
+        canonical_release(downloaded, canonical)
+        return canonical
+    return downloaded
 
 
 def verify(item, path):

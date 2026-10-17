@@ -2,6 +2,7 @@
 import functools
 import hashlib
 import http.server
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,26 @@ PAYLOAD = b'locked source archive'
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+    def do_GET(self):
+        if self.path == '/truncated.tar.gz':
+            # Promise more than is sent, then drop the connection.
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(PAYLOAD) + 64))
+            self.end_headers()
+            self.wfile.write(PAYLOAD[:5])
+            self.wfile.flush()
+            self.close_connection = True
+            return
+        if self.path == '/error-page.tar.gz':
+            # Some hosts answer a missing file with 200 and an HTML page.
+            body = b'<html>Not found</html>'
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
 
 
 class Fetch(unittest.TestCase):
@@ -61,6 +82,37 @@ class Fetch(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('SHA-256 mismatch', result.stderr)
         self.assertEqual(list(self.cache.iterdir()), [])
+
+    def test_cut_connection_falls_back_and_leaves_no_partial(self):
+        (self.served / 'mirror.tar.gz').write_bytes(PAYLOAD)
+        result = self.fetch(self.item('/truncated.tar.gz', '/mirror.tar.gz'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('truncated.tar.gz', result.stderr)
+        self.assertEqual(sorted(p.name for p in self.cache.iterdir()), ['source.orig.tar.gz'])
+
+    def test_failed_downloads_leave_no_partial_in_the_cache(self):
+        result = self.fetch(self.item('/truncated.tar.gz', '/gone.tar.gz'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(self.cache.iterdir()), [])
+
+    def test_source_verifier_tries_mirrors_after_a_200_error_page(self):
+        spec = importlib.util.spec_from_file_location(
+            'pdfium_source_verify', HERE.parent / 'release' / 'pdfium-source-verify.py')
+        verify = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verify)
+        (self.served / 'mirror.tar.gz').write_bytes(PAYLOAD)
+        self.cache.mkdir()
+        verify.CACHE = self.cache
+        item = self.item('/error-page.tar.gz', '/mirror.tar.gz')
+        item['cache_filename'] = item['name']
+        target = self.cache / 'sources' / 'source.orig.tar.gz'
+        old = os.environ.get('no_proxy')
+        os.environ['no_proxy'] = '*'
+        try:
+            verify.fetch(item, target)
+        finally:
+            os.environ.pop('no_proxy') if old is None else os.environ.__setitem__('no_proxy', old)
+        self.assertEqual(target.read_bytes(), PAYLOAD)
 
     def test_cached_file_with_wrong_digest_is_rejected(self):
         (self.served / 'pool.tar.gz').write_bytes(PAYLOAD)
