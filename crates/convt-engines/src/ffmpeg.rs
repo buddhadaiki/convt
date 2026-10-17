@@ -560,17 +560,25 @@ mod tests {
             return;
         };
         let dir = tempfile::tempdir().unwrap();
-        // DVD-style MPEG-2 with MP2 audio, and an MP4 that only has a .mpg4 name.
+        // DVD-style MPEG-2 with MP2 audio, a bare MPEG-2 video stream (the
+        // `mpegvideo` demuxer), and an MP4 that only has a .mpg4 name.
         for (name, muxer, video, audio) in [
-            ("clip.mpg", "mpeg", "mpeg2video", "mp2"),
-            ("clip.mpg4", "mp4", "mpeg4", "aac"),
+            ("clip.mpg", "mpeg", "mpeg2video", Some("mp2")),
+            ("elementary.mpg", "mpeg2video", "mpeg2video", None),
+            ("clip.mpg4", "mp4", "mpeg4", Some("aac")),
         ] {
             let input = dir.path().join(name);
-            let made = Command::new(ffmpeg)
-                .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
-                .arg("testsrc=size=128x96:rate=25:duration=1")
-                .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
-                .args(["-c:v", video, "-c:a", audio, "-shortest", "-f", muxer])
+            let mut make = Command::new(ffmpeg);
+            make.args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+                .arg("testsrc=size=128x96:rate=25:duration=1");
+            match audio {
+                Some(codec) => make
+                    .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+                    .args(["-c:a", codec, "-shortest"]),
+                None => make.arg("-an"),
+            };
+            let made = make
+                .args(["-c:v", video, "-f", muxer])
                 .arg(&input)
                 .status()
                 .unwrap();
@@ -581,7 +589,7 @@ mod tests {
             };
             let cancel = convt_core::Cancel::new();
             let options = Options::default();
-            let out = dir.path().join(format!("out-{muxer}"));
+            let out = dir.path().join(format!("out-{muxer}-{name}"));
             std::fs::create_dir(&out).unwrap();
             let outputs = engine
                 .convert(&Ctx::new(step, &options, &|_| {}, &cancel), &input, &out)
@@ -595,8 +603,12 @@ mod tests {
                 .unwrap();
             let codecs = String::from_utf8_lossy(&probe.stdout);
             assert!(
-                codecs.lines().any(|c| c.trim() == "h264")
-                    && codecs.lines().any(|c| c.trim() == "aac"),
+                codecs.lines().any(|c| c.trim() == "h264"),
+                "{name}: {codecs}"
+            );
+            assert_eq!(
+                codecs.lines().any(|c| c.trim() == "aac"),
+                audio.is_some(),
                 "{name}: {codecs}"
             );
         }
