@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate and retain the exact source closures associated with a Linux payload."""
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
@@ -67,7 +68,9 @@ def ensure_url(cache, item, cache_field='name'):
         try:
             with urllib.request.urlopen(url, timeout=120) as response, temporary.open('wb') as out:
                 shutil.copyfileobj(response, out)
-        except OSError:
+        except (OSError, http.client.HTTPException):
+            # A cut chunked response raises IncompleteRead, not an OSError.
+            temporary.unlink(missing_ok=True)
             continue
         if sha(temporary)==item['sha256']:
             temporary.replace(source)
