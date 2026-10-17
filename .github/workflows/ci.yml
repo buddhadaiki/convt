@@ -114,6 +114,8 @@ jobs:
           python-version: "3.12"
       - name: Source archive and audit unit tests
         run: python3 -m unittest discover -s scripts/release -p 'test_*.py' -v
+      - name: Linux packaging unit tests
+        run: python3 -m unittest discover -s packaging/linux -p 'test_*.py' -v
 
   windows-packaging:
     # The installer lifecycle, modern menu and MSI authoring tests skip unless
