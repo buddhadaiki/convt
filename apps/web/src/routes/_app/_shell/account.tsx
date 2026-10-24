@@ -567,7 +567,6 @@ function EmailRow({
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [attempt, setAttempt] = useState(0);
 
   function fail(result: Exclude<AuthResult, { ok: true }>) {
     if (result.code === "SESSION_NOT_FRESH") {
@@ -638,21 +637,22 @@ function EmailRow({
             Code sent to {newEmail}
           </p>
           <CodeInput
-            key={attempt}
             length={signInCodeLength}
             labelId={codeLabelId}
-            onComplete={async (code) => {
+            autoFocus
+            verify={async (code) => {
               setError(null);
               const result = await changeEmail(newEmail, code);
-              if (result.ok) {
-                setStep("view");
-                notice("Email changed. Other sessions were signed out.");
-                await router.invalidate();
-              } else {
+              if (!result.ok) {
                 fail(result);
-                setAttempt((n) => n + 1);
+                return false;
               }
+              // Refresh now, so leaving during the success ring can't keep the old address.
+              notice("Email changed. Other sessions were signed out.");
+              void router.invalidate();
+              return true;
             }}
+            onAccepted={() => setStep("view")}
           />
         </div>
       ) : null}
