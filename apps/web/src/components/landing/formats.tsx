@@ -28,7 +28,7 @@ const groups = [
   },
   {
     name: "Video",
-    formats: ["MP4", "MOV", "WEBM", "MKV", "AVI"],
+    formats: ["MP4", "MOV", "WEBM", "MKV", "AVI", "MPEG", "MPG4"],
     preview: <VideoPreview />,
   },
   {
