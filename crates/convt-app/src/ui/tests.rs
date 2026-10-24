@@ -21,6 +21,7 @@ use gpui_kit::{
 };
 use tempfile::TempDir;
 
+use super::feedback::FeedbackView;
 use super::first_run::{FirstRunView, Question, Screen, Stage};
 use super::main_window::{MainView, Page};
 use super::quick::QuickView;
@@ -28,6 +29,7 @@ use super::settings_window::{SettingsTab, SettingsView};
 use super::{AboutView, FinderGuideView, Open, PopoverView, menus, theme};
 use crate::account::{Access, Provider, Refresh, SignIn};
 use crate::cloud::CloudAccess;
+use crate::feedback::{SendError, Sender};
 use crate::history::Outcome;
 use crate::jobs::JobId;
 use crate::model::{AppState, PackPhase, Paths, Shared};
@@ -48,6 +50,32 @@ struct Fixture {
     api: Arc<TestApi>,
     /// What the update check downloads; scripted, never the network.
     releases: Arc<TestReleases>,
+    /// Where the Feedback window sends; scripted, never the network.
+    feedback: Arc<TestFeedback>,
+}
+
+/// A scripted feedback endpoint that keeps every body it was sent.
+#[derive(Default)]
+struct TestFeedback {
+    sent: Mutex<Vec<serde_json::Value>>,
+    /// The answer to the next sends; `Ok` when unset.
+    answer: Mutex<Option<SendError>>,
+}
+
+impl TestFeedback {
+    fn sent(&self) -> Vec<serde_json::Value> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+impl Sender for TestFeedback {
+    fn send(&self, body: &serde_json::Value) -> Result<(), SendError> {
+        self.sent.lock().unwrap().push(body.clone());
+        match self.answer.lock().unwrap().clone() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 }
 
 /// A scripted update server. It counts every fetch, so tests can prove a
@@ -239,6 +267,11 @@ struct TestPacks {
     rejected: Mutex<Option<String>>,
     /// How the next install ends; `None` installs.
     next: Mutex<Option<Failure>>,
+    /// Every install ends as `next` says, not only the next one.
+    fail_always: AtomicBool,
+    /// Finishes as `next` says even after Cancel, like a failure that was
+    /// already on its way when the user clicked.
+    ignore_cancel: AtomicBool,
     /// Holds the download after its first step until cancelled or released.
     hold: AtomicBool,
     /// Holds a removal until released.
@@ -286,6 +319,8 @@ impl pack::Backend for TestPacks {
         cancelled: &dyn Fn() -> bool,
     ) -> Result<PathBuf, Failure> {
         self.installs.fetch_add(1, Ordering::SeqCst);
+        let ignore = self.ignore_cancel.load(Ordering::SeqCst);
+        let cancelled = || cancelled() && !ignore;
         for step in 1..=15 {
             if cancelled() {
                 return Err(Failure {
@@ -301,7 +336,12 @@ impl pack::Backend for TestPacks {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        if let Some(failure) = self.next.lock().unwrap().take() {
+        let failure = if self.fail_always.load(Ordering::SeqCst) {
+            self.next.lock().unwrap().clone()
+        } else {
+            self.next.lock().unwrap().take()
+        };
+        if let Some(failure) = failure {
             return Err(failure);
         }
         progress(pack::Progress::Verifying);
@@ -441,6 +481,7 @@ impl Fixture {
         let dir = tempfile::tempdir().unwrap();
         let api = Arc::new(TestApi::default());
         let releases = Arc::new(TestReleases::default());
+        let feedback = Arc::new(TestFeedback::default());
         let paths = Paths {
             settings: Some(dir.path().join("settings.toml")),
             history: Some(dir.path().join("history.db")),
@@ -449,6 +490,7 @@ impl Fixture {
             license: license(dir.path()),
             account_url: ACCOUNT_URL.into(),
             account_api: api.clone(),
+            feedback: feedback.clone(),
             update: UpdateConfig {
                 key: Some(update_key().verifying_key()),
                 fetch: releases.clone(),
@@ -477,6 +519,7 @@ impl Fixture {
             app,
             api,
             releases,
+            feedback,
         }
     }
 
@@ -1799,7 +1842,9 @@ fn first_run_shows_once_in_licensed_builds(cx: &mut TestAppContext) {
     assert!(!f.settings_file().contains("first_run_done = true"));
     // Sign in, or a key. No local trial.
     assert!(shown(cx, window, "onboarding-google"));
-    assert!(shown(cx, window, "onboarding-email"));
+    assert!(shown(cx, window, "onboarding-other"));
+    // No separate email step: email is on convt.app's sign-in page.
+    assert!(!shown(cx, window, "onboarding-email"));
     assert!(!shown(cx, window, "plan-trial"));
 
     // "I have a license key" activates the key and shows it.
@@ -1922,9 +1967,14 @@ fn the_sign_in_buttons_ask_for_their_provider(cx: &mut TestAppContext) {
     let f = Fixture::licensed(cx, None, None);
     cx.update(|cx| super::route(Request::default(), cx));
     let (window, view) = window_of::<FirstRunView>(cx);
-    for (button, provider) in [
-        ("onboarding-google", Provider::Google),
-        ("onboarding-email", Provider::Email),
+    for (button, provider, query) in [
+        (
+            "onboarding-google",
+            Some(Provider::Google),
+            Some("&provider=google"),
+        ),
+        // Other ways opens the full chooser, email included.
+        ("onboarding-other", None, None),
     ] {
         click(cx, window, button);
         let page = cx.opened_url().expect("the device page opened");
@@ -1932,6 +1982,10 @@ fn the_sign_in_buttons_ask_for_their_provider(cx: &mut TestAppContext) {
             page.starts_with(&format!("{ACCOUNT_URL}/device?state=")),
             "{page}"
         );
+        match query {
+            Some(query) => assert!(page.ends_with(query), "{page}"),
+            None => assert!(!page.contains("provider="), "{page}"),
+        }
         cx.read(|cx| {
             assert_eq!(view.read(cx).stage(cx), Stage::Waiting);
             assert_eq!(view.read(cx).provider, provider);
@@ -2714,7 +2768,96 @@ fn every_window_renders_in_both_themes(cx: &mut TestAppContext) {
             cx.new(|cx| PopoverView::new(app, window, cx))
         });
         assert!(shown(cx, popover, "drop-bar"));
+        let app = f.app.clone();
+        let (feedback, _) = open(cx, move |window, cx| {
+            cx.new(|cx| FeedbackView::new(app, window, cx))
+        });
+        assert!(shown(cx, feedback, "feedback-send"));
     }
+}
+
+fn set_textarea(
+    cx: &mut TestAppContext,
+    window: AnyWindowHandle,
+    input: &Entity<gpui_kit::component::input::TextareaState>,
+    value: &str,
+) {
+    let value = value.to_string();
+    let input = input.clone();
+    cx.update_window(window, |_, window, cx| {
+        input.update(cx, |s, cx| s.set_value(value, window, cx))
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn feedback_sends_the_message_with_the_version_and_platform(cx: &mut TestAppContext) {
+    let f = Fixture::new(cx);
+    let (main, _) = f.main(cx);
+    click(cx, main, "nav-feedback");
+    let (window, view) = window_of::<FeedbackView>(cx);
+    assert!(fits(cx, window, "feedback-send"), "Feedback window");
+
+    // Nothing is sent for an empty message or a bad email.
+    click(cx, window, "feedback-send");
+    assert_eq!(
+        label(cx, window, "error").as_deref(),
+        Some("Write a message first.")
+    );
+    let (message, email) =
+        cx.read(|cx| (view.read(cx).message.clone(), view.read(cx).email.clone()));
+    set_textarea(
+        cx,
+        window,
+        &message,
+        "  WebP to GIF lost the animation.\nCan you look?  ",
+    );
+    set_input(cx, window, &email, "nope");
+    click(cx, window, "feedback-send");
+    assert_eq!(
+        label(cx, window, "error").as_deref(),
+        Some("That email address doesn't look right.")
+    );
+    assert!(f.feedback.sent().is_empty());
+
+    // A server that isn't set up yet keeps the message for another try.
+    *f.feedback.answer.lock().unwrap() = Some(SendError::Unavailable);
+    set_input(cx, window, &email, "ada@example.com");
+    click(cx, window, "feedback-send");
+    wait_for_label(cx, window, "error", |t| {
+        t.starts_with("Feedback isn't set up yet")
+    });
+    cx.read(|cx| {
+        assert!(
+            view.read(cx)
+                .message
+                .read(cx)
+                .value()
+                .contains("WebP to GIF")
+        )
+    });
+
+    *f.feedback.answer.lock().unwrap() = None;
+    click(cx, window, "feedback-send");
+    wait_for_label(cx, window, "feedback-sent", |t| {
+        t == "Thanks for the feedback"
+    });
+    let sent = f.feedback.sent();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        sent[1],
+        serde_json::json!({
+            "source": "desktop",
+            "message": "WebP to GIF lost the animation.\nCan you look?",
+            "email": "ada@example.com",
+            "version": crate::account::VERSION,
+            "platform": crate::feedback::platform(),
+        })
+    );
+    // Done closes the window.
+    click(cx, window, "feedback-done");
+    cx.run_until_parked();
+    assert!(!cx.update(|cx| cx.windows()).contains(&window));
 }
 
 #[gpui_kit::test]
@@ -3189,7 +3332,7 @@ fn windows_fit_their_content_at_their_opening_sizes(cx: &mut TestAppContext) {
         let (first, view) = window_of::<FirstRunView>(cx);
         for id in [
             "onboarding-google",
-            "onboarding-email",
+            "onboarding-other",
             "onboarding-key-link",
             "privacy",
         ] {
@@ -3444,7 +3587,12 @@ fn text_fields_have_room_for_a_whole_line(cx: &mut TestAppContext) {
     let (quick, _) = f.quick(cli(vec![f.png("a.png")], None, None), cx);
     click(cx, quick, "to-webp");
     click(cx, quick, "file-name-edit");
+    let app = f.app.clone();
+    let (feedback, _) = open(cx, move |window, cx| {
+        cx.new(|cx| FeedbackView::new(app, window, cx))
+    });
     let fields = [
+        (feedback, "feedback-email", theme::FIELD_HEIGHT),
         (settings, "preset-name", theme::FIELD_HEIGHT),
         (settings, "preset-quality", theme::FIELD_HEIGHT),
         (settings, "preset-max-size", theme::FIELD_HEIGHT),
@@ -3987,7 +4135,7 @@ fn a_build_without_a_pinned_pack_offers_no_download(cx: &mut TestAppContext) {
     assert!(!shown(cx, window, "pack-download"));
     // Even a direct call does nothing without a pinned pack.
     let app = f.app.clone();
-    cx.update(|cx| app.update(cx, |s, cx| s.download_pack(cx)));
+    cx.update(|cx| app.update(cx, |s, cx| s.download_pack(0, cx)));
     assert_eq!(packs.installs(), 0);
 }
 
@@ -4019,12 +4167,21 @@ fn only_the_download_button_reaches_the_installer() {
     };
     assert_eq!(uses("install_documents"), ["pack.rs"]);
     assert_eq!(uses("ureq"), Vec::<&str>::new());
-    // The definition, and the one call in `start_install`.
-    assert_eq!(uses("download_pack("), ["model.rs", "ui/pack.rs"]);
-    // Which only the Download button's click and onboarding's Yes call.
+    // The definition and its retry, which only follows a download already
+    // asked for, and the calls in `start_install` and
+    // `start_background_install`.
     assert_eq!(
-        uses("start_install("),
-        ["ui/first_run.rs", "ui/pack.rs", "ui/pack.rs"]
+        uses("download_pack("),
+        ["model.rs", "model.rs", "ui/pack.rs", "ui/pack.rs"]
+    );
+    let model = include_str!("../model.rs").replace("\r\n", "\n");
+    let retry = model.split("fn retry_pack").nth(1).unwrap();
+    assert!(retry[..retry.find("\n    }\n").unwrap()].contains("self.download_pack("));
+    // Which only the Download button's click and onboarding's Yes call.
+    assert_eq!(uses("start_install("), ["ui/pack.rs", "ui/pack.rs"]);
+    assert_eq!(
+        uses("start_background_install("),
+        ["ui/first_run.rs", "ui/pack.rs"]
     );
     // A Windows checkout may have CRLF line endings.
     let pack = include_str!("pack.rs").replace("\r\n", "\n");
@@ -4034,10 +4191,11 @@ fn only_the_download_button_reaches_the_installer() {
     let first_run = include_str!("first_run.rs").replace("\r\n", "\n");
     let answer = first_run.split("fn answer").nth(1).unwrap();
     let answer = &answer[..answer.find("\n    }\n").unwrap()];
-    assert!(answer.contains("if yes") && answer.contains("start_install(&self.app, cx)"));
+    assert!(
+        answer.contains("if yes") && answer.contains("start_background_install(&self.app, cx)")
+    );
     // `backend.install(` runs inside download_pack's worker thread only.
     assert_eq!(uses("backend.install("), ["model.rs"]);
-    let model = include_str!("../model.rs").replace("\r\n", "\n");
     let body = &model[model.find("pub fn download_pack").unwrap()..];
     let body = &body[..body.find("\n    }\n").unwrap()];
     assert!(body.contains("backend.install("));
@@ -4167,7 +4325,7 @@ fn a_reinstall_waits_for_document_jobs_and_holds_new_ones(cx: &mut TestAppContex
         app.update(cx, |s, cx| {
             s.convert(std::slice::from_ref(&docx), pdf, &Options::default(), cx)
                 .unwrap();
-            s.download_pack(cx);
+            s.download_pack(0, cx);
         })
     });
     assert_eq!(packs.installs(), 0, "not while a document converts");
@@ -4183,7 +4341,7 @@ fn a_reinstall_waits_for_document_jobs_and_holds_new_ones(cx: &mut TestAppContex
 
     // Once nothing converts, it reinstalls, and documents wait for it.
     packs.hold.store(true, Ordering::SeqCst);
-    cx.update(|cx| app.update(cx, |s, cx| s.download_pack(cx)));
+    cx.update(|cx| app.update(cx, |s, cx| s.download_pack(0, cx)));
     wait_until(cx, "the download", |_| packs.installs() == 1);
     cx.update(|cx| {
         app.update(cx, |s, cx| {
@@ -5761,22 +5919,31 @@ fn the_setup_step_leaves_the_document_download_to_the_background(cx: &mut TestAp
     assert_eq!(packs.installs(), 1);
 }
 
-/// A download that fails during onboarding doesn't stop it, and Activity
-/// says so plainly, with Settings as the way to try again.
+/// Waits for the background download's `n`th try to finish, then lets the
+/// wait before the next one pass.
+fn pass_pack_retry(cx: &mut TestAppContext, app: &Entity<AppState>, n: usize) {
+    wait_until(cx, "the retry is scheduled", |cx| {
+        app.read(cx).pack_retry_pending()
+    });
+    cx.executor()
+        .advance_clock(crate::model::PACK_RETRY_DELAYS[n - 1] + Duration::from_millis(50));
+}
+
+/// A download that fails during onboarding, and again on both of its own
+/// retries, doesn't stop it, and Activity says so plainly, with Settings as
+/// the way to try again.
 #[gpui_kit::test]
 fn a_failed_onboarding_download_says_so_and_points_to_settings(cx: &mut TestAppContext) {
     let packs = Arc::new(TestPacks::default());
     packs.fail_next(FailureKind::Network, "offline");
+    packs.fail_always.store(true, Ordering::SeqCst);
     let key = pro_key("pro-tester", "2027-10-01");
     let f = Fixture::licensed_with_packs(cx, packs.clone(), Some(&key));
     cx.update(|cx| super::route(Request::default(), cx));
     let (window, view) = window_of::<FirstRunView>(cx);
     click(cx, window, "onboarding-primary");
     click(cx, window, "question-yes");
-    wait_until(cx, "the download failed", |cx| {
-        matches!(f.app.read(cx).pack.phase, PackPhase::Failed(_))
-    });
-    cx.run_until_parked();
+    wait_until(cx, "the first try failed", |_| packs.installs() == 1);
     // Onboarding carries on; the failure waits in Activity.
     assert_eq!(
         label(cx, window, "onboarding-title").as_deref(),
@@ -5784,12 +5951,109 @@ fn a_failed_onboarding_download_says_so_and_points_to_settings(cx: &mut TestAppC
     );
     finish_onboarding(cx, &view);
     let (main, _) = window_of::<MainView>(cx);
+    pass_pack_retry(cx, &f.app, 1);
+    wait_until(cx, "the second try", |_| packs.installs() == 2);
+    pass_pack_retry(cx, &f.app, 2);
+    wait_until(cx, "the download failed", |cx| {
+        matches!(f.app.read(cx).pack.phase, PackPhase::Failed(_))
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        packs.installs(),
+        3,
+        "two retries, then it waits for a click"
+    );
     assert_eq!(
         label(cx, main, "activity-pack").as_deref(),
         Some("Couldn't download document support")
     );
     click(cx, main, "activity-pack-settings");
     window_of::<SettingsView>(cx);
+}
+
+/// Onboarding's download gets past a dropped connection or a server error
+/// by itself: it waits, resumes, and installs, without a click.
+#[gpui_kit::test]
+fn an_onboarding_download_retries_a_network_failure_by_itself(cx: &mut TestAppContext) {
+    let packs = Arc::new(TestPacks::default());
+    packs.fail_next(FailureKind::Network, "connection reset");
+    let key = pro_key("pro-tester", "2027-10-01");
+    let f = Fixture::licensed_with_packs(cx, packs.clone(), Some(&key));
+    cx.update(|cx| super::route(Request::default(), cx));
+    let (window, view) = window_of::<FirstRunView>(cx);
+    click(cx, window, "onboarding-primary");
+    click(cx, window, "question-yes");
+    wait_until(cx, "the first try failed", |cx| {
+        f.app.read(cx).pack_retry_pending()
+    });
+    // Waiting to try again still reads as the download going on.
+    cx.read(|cx| assert!(matches!(f.app.read(cx).pack.phase, PackPhase::Working(_))));
+    finish_onboarding(cx, &view);
+    let (main, _) = window_of::<MainView>(cx);
+    assert_eq!(
+        label(cx, main, "activity-pack").as_deref(),
+        Some("Adding document support")
+    );
+    cx.executor()
+        .advance_clock(crate::model::PACK_RETRY_DELAYS[0] + Duration::from_millis(50));
+    wait_until(cx, "the pack installed", |cx| {
+        f.app.read(cx).documents_supported()
+    });
+    assert_eq!(packs.installs(), 2);
+    cx.run_until_parked();
+    assert!(!shown(cx, main, "activity-pack"));
+}
+
+/// What another try can't fix (a checksum mismatch, a full disk) fails
+/// straight away, and Cancel during the wait stops the retry.
+#[gpui_kit::test]
+fn an_onboarding_download_only_retries_what_retrying_can_fix(cx: &mut TestAppContext) {
+    let packs = Arc::new(TestPacks::default());
+    packs.fail_next(FailureKind::Checksum, "mismatch");
+    let key = pro_key("pro-tester", "2027-10-01");
+    let f = Fixture::licensed_with_packs(cx, packs.clone(), Some(&key));
+    cx.update(|cx| super::route(Request::default(), cx));
+    let (window, _) = window_of::<FirstRunView>(cx);
+    click(cx, window, "onboarding-primary");
+    click(cx, window, "question-yes");
+    wait_until(cx, "the download failed", |cx| {
+        matches!(f.app.read(cx).pack.phase, PackPhase::Failed(_))
+    });
+    cx.executor().advance_clock(Duration::from_secs(120));
+    cx.run_until_parked();
+    assert_eq!(packs.installs(), 1);
+
+    // A network failure waits to retry; Cancel ends it there.
+    packs.fail_next(FailureKind::Network, "offline");
+    cx.update(|cx| super::pack::start_background_install(&f.app, cx));
+    wait_until(cx, "the second download failed once", |cx| {
+        f.app.read(cx).pack_retry_pending()
+    });
+    f.app.update(cx, |s, cx| s.cancel_pack_download(cx));
+    cx.executor().advance_clock(Duration::from_secs(120));
+    cx.run_until_parked();
+    assert_eq!(packs.installs(), 2);
+    cx.read(|cx| {
+        assert!(matches!(
+            &f.app.read(cx).pack.phase,
+            PackPhase::Failed(failure) if failure.kind == FailureKind::Cancelled
+        ))
+    });
+
+    // Cancel while a network failure is already on its way: no retry.
+    packs.fail_next(FailureKind::Network, "offline");
+    packs.ignore_cancel.store(true, Ordering::SeqCst);
+    packs.hold.store(true, Ordering::SeqCst);
+    cx.update(|cx| super::pack::start_background_install(&f.app, cx));
+    wait_until(cx, "the third download started", |_| packs.installs() == 3);
+    f.app.update(cx, |s, cx| s.cancel_pack_download(cx));
+    packs.hold.store(false, Ordering::SeqCst);
+    wait_until(cx, "the third download failed", |cx| {
+        matches!(f.app.read(cx).pack.phase, PackPhase::Failed(_))
+    });
+    cx.executor().advance_clock(Duration::from_secs(120));
+    cx.run_until_parked();
+    assert_eq!(packs.installs(), 3, "Cancel stops the retry");
 }
 
 /// A scripted installer host: serves `body` for any URL, counts requests,
@@ -6539,7 +6803,7 @@ fn restart_to_update_waits_for_document_support_and_holds_pack_work(cx: &mut Tes
     let (_, installer) = f.self_installing(cx);
     ready(&f, cx);
     packs.hold.store(true, Ordering::SeqCst);
-    cx.update(|cx| f.app.update(cx, |s, cx| s.download_pack(cx)));
+    cx.update(|cx| f.app.update(cx, |s, cx| s.download_pack(0, cx)));
     wait_until(cx, "the pack download", |_| packs.installs() == 1);
     let (main, _) = f.main(cx);
     click(cx, main, "update-restart");
@@ -6560,7 +6824,7 @@ fn restart_to_update_waits_for_document_support_and_holds_pack_work(cx: &mut Tes
     });
     let removed = cx.update(|cx| {
         f.app.update(cx, |s, cx| {
-            s.download_pack(cx);
+            s.download_pack(0, cx);
             s.remove_pack(cx)
         })
     });

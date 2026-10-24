@@ -31,13 +31,12 @@ function CheckEmailPage() {
   const codeLabelId = useId();
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // A new key clears the boxes after a wrong code.
-  const [attempt, setAttempt] = useState(0);
 
-  async function submit(code: string) {
-    if (!email || busy) return;
-    setBusy(true);
+  async function verify(code: string) {
+    if (!email) {
+      setError("This page lost your email address. Use a different email to start again.");
+      return false;
+    }
     setError(null);
     setStatus(null);
     const result = await signInWithCode(email, code);
@@ -51,11 +50,10 @@ function CheckEmailPage() {
           origin: siteOrigin(),
         }),
       );
-      return;
+      return true;
     }
-    setBusy(false);
     setError(result.message);
-    setAttempt((n) => n + 1);
+    return false;
   }
 
   return (
@@ -88,10 +86,11 @@ function CheckEmailPage() {
           Enter the code
         </p>
         <CodeInput
-          key={attempt}
           length={signInCodeLength}
           labelId={codeLabelId}
-          onComplete={submit}
+          verify={verify}
+          autoFocus
+          align="center"
         />
         <div className="min-h-[18px] text-center">
           <FormError>{error}</FormError>
