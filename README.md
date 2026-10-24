@@ -11,7 +11,7 @@ Local file conversion for your own machine. Right-click a file, pick a format, a
 - A desktop app built with [GPUI](https://www.gpui.rs), with a Finder menu on macOS and file manager menus on Linux. The Windows Explorer menu is built (`crates/convt-shell`) but not yet in the release installer
 - The `convt` CLI, shipped in the same install
 - Multi-hop routes of at most three steps when no engine can convert directly
-- Optional document pack for Word, Excel and PowerPoint, installed only when you ask
+- Document support for Word, Excel and PowerPoint: a one-time download that setup offers, or that you can add later in Settings
 - A paid cloud API and TypeScript SDK for converting files on convt's servers
 - Accounts, checkout and downloads on [convt.app](https://convt.app)
 
@@ -55,7 +55,7 @@ convt registers whatever can run on this machine and picks a route:
 - **image** and **resvg** for photos and SVG (JPEG, PNG, WebP, AVIF, GIF, TIFF, BMP, ICO, TGA, PPM, QOI, OpenEXR)
 - **libheif**, or `sips` on macOS, for HEIC
 
-Office files need LibreOffice on `PATH`. Released Windows builds can also run `convt pack install documents`, which downloads the pinned pack from the GitHub release and verifies its checksum. Ordinary source builds need a system LibreOffice, or an explicit `--source` and `--sha256`. The engines never start that download themselves.
+Office files use LibreOffice. Released builds on macOS, Linux and Windows download a pinned document pack from their GitHub release: the app offers it during setup, and `convt pack install documents` does the same from the CLI, verifying the checksum compiled into that build. Source builds use a LibreOffice on `PATH`, or an explicit `--source` and `--sha256`. The engines never start that download themselves.
 
 ## CLI
 
