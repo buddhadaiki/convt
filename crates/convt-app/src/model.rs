@@ -563,8 +563,7 @@ impl AppState {
 
     /// Like [`Self::convert_to`], but runs on convt's cloud. The caller has
     /// checked [`Self::cloud_access`] and the user's consent; this checks
-    /// both again. The cloud takes no conversion options, so a request with
-    /// any is refused rather than converted without them.
+    /// both again.
     pub fn convert_in_cloud(
         &mut self,
         files: &[PathBuf],
@@ -583,12 +582,6 @@ impl AppState {
         if !self.settings.cloud_consent {
             return Err("Agree to upload files to convt's cloud before converting there.".into());
         }
-        if *options != Options::default() {
-            return Err(
-                "Cloud conversion doesn't take options yet. Convert on this computer to use them."
-                    .into(),
-            );
-        }
         let Some(session) = self.account.session.clone() else {
             return Err(CloudAccess::SignedOut.reason().unwrap_or_default());
         };
@@ -606,7 +599,7 @@ impl AppState {
                 let job = Job {
                     input: file.clone(),
                     to,
-                    options: Options::default(),
+                    options: options.clone(),
                     output: output.clone(),
                 };
                 let id = self.queue.add_cloud(&job);
@@ -651,12 +644,14 @@ impl AppState {
         if self.installing() {
             return Err(INSTALLING.into());
         }
-        if let Some(reason) = self.documents_locked()
-            && files
-                .iter()
-                .any(|f| format_by_extension(f).is_some_and(pack::is_document))
-        {
-            return Err(reason.into());
+        if let Some(reason) = self.documents_locked() {
+            let native = self.packs.registry_without_documents();
+            if files.iter().any(|f| {
+                format_by_extension(f)
+                    .is_some_and(|from| pack::uses_pack(&self.registry, &native, from, to))
+            }) {
+                return Err(reason.into());
+            }
         }
         let allowed = self.licensing.begin_conversion();
         self.license = self.licensing.state();
@@ -811,7 +806,8 @@ impl AppState {
     }
 
     /// Whether some conversion this registry offers reads documents: the
-    /// document pack or a LibreOffice on this computer is in use.
+    /// document pack or a LibreOffice on this computer is in use. Markdown,
+    /// data and subtitle files convert without either, so Word files decide.
     pub fn documents_supported(&self) -> bool {
         self.documents.supported
     }
@@ -832,13 +828,22 @@ impl AppState {
         }
     }
 
-    /// Whether a document is converting or waiting to: a job from or to a
-    /// document format, since a PDF becomes Word through LibreOffice too.
+    /// Whether a conversion that runs the document pack is converting or
+    /// waiting to.
     fn documents_converting(&self) -> bool {
-        self.queue.entries.iter().any(|e| {
-            !e.status.is_finished()
-                && (pack::is_document(e.to)
-                    || format_by_extension(&e.input).is_some_and(pack::is_document))
+        let mut waiting = self
+            .queue
+            .entries
+            .iter()
+            .filter(|e| !e.status.is_finished())
+            .peekable();
+        if waiting.peek().is_none() {
+            return false;
+        }
+        let native = self.packs.registry_without_documents();
+        waiting.any(|e| {
+            format_by_extension(&e.input)
+                .is_some_and(|from| pack::uses_pack(&self.registry, &native, from, e.to))
         })
     }
 
@@ -1043,9 +1048,10 @@ impl AppState {
     }
 
     fn summarize_documents(&mut self) {
-        let supported = convt_core::FORMATS
-            .iter()
-            .any(|f| pack::is_document(f) && !self.registry.targets(f).is_empty());
+        // Markdown, data and subtitle files convert without the pack or a
+        // system LibreOffice, so Word files decide.
+        let supported =
+            convt_core::format_by_id("docx").is_some_and(|f| !self.registry.targets(f).is_empty());
         let worth_offering = self.pack.offer.configured
             && !matches!(self.pack.status, pack::Status::Installed(_))
             && !supported;

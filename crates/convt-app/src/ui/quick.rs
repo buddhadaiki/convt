@@ -429,7 +429,7 @@ impl QuickView {
         if audio_applies(to) {
             options.strip_audio = self.strip_audio;
         }
-        // Where the row is hidden (WAV, FLAC), a preset's limit would only
+        // Where the row is hidden (lossless audio), a preset's limit would only
         // make the conversion fail, with nothing in the window to clear it.
         options.target_size = if target_size_applies(to) {
             self.target_size
@@ -478,11 +478,7 @@ impl QuickView {
             return;
         }
         let cloud = self.in_cloud(cx);
-        let options = if cloud {
-            Options::default()
-        } else {
-            self.conversion_options()
-        };
+        let options = self.conversion_options();
         if let Err(e) = options.validate() {
             self.error = Some(e.to_string());
             cx.notify();
@@ -962,18 +958,6 @@ impl QuickView {
 
     fn options_section(&self, p: &Palette, cx: &mut Context<Self>) -> Option<Div> {
         let to = self.to?;
-        if self.in_cloud(cx) {
-            // The cloud API takes no options, so there is nothing to set.
-            return Some(
-                section("Options", p).child(
-                    theme::styled(theme::size::SMALL, p.secondary)
-                        .id("cloud-options")
-                        .test_support()
-                        .aria_label("Cloud converts with the standard settings.")
-                        .child("Cloud converts with the standard settings."),
-                ),
-            );
-        }
         let quality = quality_applies(to).then(|| {
             let mut choices: Vec<(&'static str, SharedString)> = QUALITY
                 .iter()
@@ -1808,10 +1792,10 @@ fn media(to: &Format) -> bool {
     )
 }
 
-/// Whether Max file size shows for `to`. WAV and FLAC can't trade quality
-/// for size, so the engine refuses a limit there.
+/// Whether Max file size shows for `to`. Lossless audio (WAV, FLAC, AIFF,
+/// CAF) can't trade quality for size, so the engine refuses a limit there.
 fn target_size_applies(to: &Format) -> bool {
-    media(to) && !matches!(to.id, "wav" | "flac")
+    media(to) && !matches!(to.id, "wav" | "flac" | "aiff" | "caf")
 }
 
 /// "No limit" or the size as presets write it: "10MB".
@@ -1875,7 +1859,7 @@ fn size_choices(to: &Format) -> Option<(&'static str, &'static [SizeChoice])> {
                 (Some(512), "512 px"),
             ],
         )),
-        Category::Audio if !matches!(to.id, "wav" | "flac") => Some((
+        Category::Audio if !matches!(to.id, "wav" | "flac" | "aiff" | "caf") => Some((
             "Bitrate",
             &[
                 (None, "Original"),
