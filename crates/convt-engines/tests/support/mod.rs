@@ -112,6 +112,10 @@ impl Fixture {
             reference: None,
         };
         match format.category {
+            _ if TEXT_FIXTURES.contains(&format.id) => {
+                std::fs::write(&fixture.path, text_fixture(format.id))
+                    .map_err(|e| e.to_string())?;
+            }
             Category::Image if format.id == "heic" => {
                 std::fs::write(dir.join("pattern.rgba"), pattern().as_raw())
                     .map_err(|e| e.to_string())?;
@@ -640,7 +644,8 @@ pub fn validate(
     files: &[PathBuf],
     options: &Options,
 ) -> Check<()> {
-    let count = if fixture.format.category == Category::Pdf {
+    // PDF pages become one image each; text and documents are one file.
+    let count = if fixture.format.category == Category::Pdf && to.category == Category::Image {
         (0..fixture.pages)
             .filter(|&i| options.pages.is_none_or(|r| r.contains(i)))
             .count()
@@ -651,6 +656,10 @@ pub fn validate(
         return Err(format!("{} artifacts; expected {count}", files.len()));
     }
     for (index, path) in files.iter().enumerate() {
+        if natively_checked(fixture.format, to) {
+            check_text(fixture.format, to, path)?;
+            continue;
+        }
         match to.category {
             Category::Image => {
                 image_magic(path, to.id)?;
@@ -753,6 +762,33 @@ pub fn validate(
                 }
                 let out = helper("pdf-check", path, &[])?;
                 let info: Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+                if matches!(fixture.format.category, Category::Image | Category::Vector) {
+                    if info["pages"] != 1 {
+                        return Err(format!("image PDF has {} pages", info["pages"]));
+                    }
+                    // Laid out at the requested DPI (96 by default); SVG
+                    // keeps its own 96-per-inch size through PNG.
+                    let points = |px: u32| {
+                        if fixture.format.category == Category::Vector {
+                            px * 72 / 96
+                        } else {
+                            px * 72 / options.dpi.unwrap_or(96)
+                        }
+                    };
+                    let page = raw_image(&helper("pdf-pixels", path, &[])?.stdout)?;
+                    let expected = (points(64), points(48));
+                    if page.width().abs_diff(expected.0) > 1
+                        || page.height().abs_diff(expected.1) > 1
+                    {
+                        return Err(format!(
+                            "image PDF page {:?}; expected {expected:?}",
+                            (page.width(), page.height())
+                        ));
+                    }
+                    // The validator renders onto white, as viewers do.
+                    check_pattern(&page, false, fixture.alpha)?;
+                    continue;
+                }
                 if info["pages"] != 1 || !info["text"].as_str().unwrap_or("").contains(MARKER) {
                     return Err(format!("PDF lost pages/text: {info}"));
                 }
@@ -764,8 +800,24 @@ pub fn validate(
                     return Err(format!("PDF lost spreadsheet values: {info}"));
                 }
             }
+            Category::Document if fixture.format.category == Category::Pdf => {
+                let pages: Vec<String> = (1..=fixture.pages)
+                    .filter(|&n| options.pages.is_none_or(|r| r.contains(n - 1)))
+                    .map(|n| n.to_string())
+                    .collect();
+                helper("office-check", path, &["PdfText", &pages.join(",")])?;
+            }
             Category::Document | Category::Presentation | Category::Spreadsheet => {
-                helper("office-check", path, &[&format!("{:?}", to.category)])?;
+                // A table laid out as a document keeps its cells, not the
+                // document fixture's sentence.
+                let tabular = fixture.format.category == Category::Spreadsheet
+                    || TABULAR.contains(&fixture.format.id);
+                let kind = if tabular && to.category == Category::Document {
+                    "Table".into()
+                } else {
+                    format!("{:?}", to.category)
+                };
+                helper("office-check", path, &[&kind])?;
             }
             _ => return Err(format!("unvalidated target {}", to.id)),
         }
@@ -909,6 +961,9 @@ pub fn missing_validation_tool_with<'a>(
     has_tool: impl Fn(&str) -> bool,
     native: impl FnOnce() -> &'a Value,
 ) -> Option<&'static str> {
+    if TEXT_FIXTURES.contains(&from.id) && natively_checked(from, to) {
+        return None;
+    }
     let office = matches!(
         from.category,
         Category::Document | Category::Presentation | Category::Spreadsheet
@@ -945,6 +1000,86 @@ pub fn missing_validation_tool_with<'a>(
     } else {
         None
     }
+}
+
+/// Inputs written here as text, without LibreOffice. Each carries the
+/// marker, the document sentence, and the spreadsheet cells the Office
+/// checks look for, so routes through LibreOffice validate as usual.
+pub const TEXT_FIXTURES: &[&str] = &["md", "json", "yaml", "tsv", "srt", "vtt"];
+
+pub fn text_fixture(id: &str) -> String {
+    let doc = "Known document text 12345";
+    match id {
+        "md" => format!(
+            "# {MARKER}\n\n{doc}\n\n- one\n- **two**\n\n| Name | Value |\n|---|---|\n| KnownCell | 3.5 |\n"
+        ),
+        // The first row is the header, so a table made from these starts
+        // MARKER,42 then KnownCell,3.5, the cells the spreadsheet check reads.
+        "json" => format!(
+            "[{{\"{MARKER}\": \"KnownCell\", \"42\": \"3.5\"}}, {{\"{MARKER}\": \"{doc}\", \"42\": \"1\"}}]\n"
+        ),
+        "yaml" => format!("- {MARKER}: KnownCell\n  '42': '3.5'\n- {MARKER}: {doc}\n  '42': '1'\n"),
+        "tsv" => format!("{MARKER}\t42\nKnownCell\t3.5\n{doc}\t1\n"),
+        "srt" => format!(
+            "1\r\n00:00:01,000 --> 00:00:02,500\r\n<i>{MARKER}</i>\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\n{doc}\r\n"
+        ),
+        "vtt" => format!(
+            "WEBVTT\n\nNOTE fixture\n\n00:01.000 --> 00:02.500 align:start\n<v Ann>{MARKER}</v>\n\n00:00:03.000 --> 00:00:04.000\n{doc} &amp; more\n"
+        ),
+        _ => unreachable!("no text fixture for {id}"),
+    }
+}
+
+const TEXT_TARGETS: &[&str] = &[
+    "html", "txt", "md", "json", "yaml", "csv", "tsv", "srt", "vtt",
+];
+const TABULAR: &[&str] = &["csv", "tsv", "json", "yaml"];
+
+/// Text outputs of the native text engines, checked here rather than by
+/// reopening them in LibreOffice.
+pub fn natively_checked(from: &Format, to: &Format) -> bool {
+    let native = |id: &str| TEXT_FIXTURES.contains(&id) || id == "csv";
+    (native(from.id) || native(to.id)) && TEXT_TARGETS.contains(&to.id)
+}
+
+fn check_text(from: &Format, to: &Format, path: &Path) -> Check<()> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", to.id))?;
+    // Markdown may escape punctuation such as the marker's underscores.
+    let words = if to.id == "md" {
+        text.replace('\\', "")
+    } else {
+        text.clone()
+    };
+    let mut needed = vec![MARKER];
+    if TABULAR.contains(&from.id) || from.category == Category::Spreadsheet {
+        needed.extend(["KnownCell", "3.5"]);
+    } else {
+        needed.push("Known document text 12345");
+    }
+    if let Some(lost) = needed.iter().find(|s| !words.contains(**s)) {
+        return Err(format!("{} lost {lost:?}: {text:?}", to.id));
+    }
+    let shape = match to.id {
+        "json" => serde_json::from_str::<Value>(&text)
+            .map(drop)
+            .map_err(|e| e.to_string()),
+        // A list of mappings, as the fixtures hold (convt-cli shares this
+        // module and has no YAML parser).
+        "yaml" if !text.starts_with("- ") || text.contains('\t') => Err("not a YAML list".into()),
+        "html"
+            if !text.starts_with("<!DOCTYPE html>") && !text.to_lowercase().contains("<html") =>
+        {
+            Err("no HTML document".into())
+        }
+        "vtt" if !text.starts_with("WEBVTT") => Err("no WEBVTT header".into()),
+        "srt" if !text.contains(" --> ") || !text.contains(',') => Err("no SRT timing".into()),
+        "tsv" if !text.contains('\t') => Err("no tabs".into()),
+        "csv" if !text.lines().next().unwrap_or("").starts_with(MARKER) => {
+            Err("the header row moved".into())
+        }
+        _ => Ok(()),
+    };
+    shape.map_err(|e| format!("{} -> {}: {e}: {text:?}", from.id, to.id))
 }
 
 pub fn native_validators() -> &'static Value {

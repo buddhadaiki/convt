@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use convt_core::{
-    Background, Category, Format, Options, Output, Registry, VideoCodec, format_by_id,
+    Background, Category, Format, Options, Output, Registry, VideoCodec, format_by_id, format_size,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::tooltip::Tooltip;
@@ -34,6 +34,17 @@ const QUALITY: [(&str, &str, Option<u8>); 3] = [
     ("best", "Best", Some(95)),
 ];
 
+/// The Max file size choices in bytes, decimal like upload limits; `None`
+/// is no limit.
+const TARGET_SIZES: [Option<u64>; 6] = [
+    None,
+    Some(2_000_000),
+    Some(8_000_000),
+    Some(10_000_000),
+    Some(25_000_000),
+    Some(50_000_000),
+];
+
 /// The segment key for a quality value; "preset" for a value a preset set
 /// that no segment matches.
 fn quality_key(quality: Option<u8>) -> &'static str {
@@ -47,6 +58,7 @@ fn quality_key(quality: Option<u8>) -> &'static str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Open {
     Size,
+    TargetSize,
     Codec,
     Background,
 }
@@ -69,6 +81,10 @@ pub struct QuickView {
     pub(super) video_codec: Option<VideoCodec>,
     /// The Keep audio checkbox, unchecked.
     pub(super) strip_audio: bool,
+    /// The Max file size control, in bytes. `None` is no limit.
+    pub(super) target_size: Option<u64>,
+    /// The Strip metadata checkbox.
+    pub(super) strip_metadata: bool,
     /// The Background control for image targets. `None` shows the engine's
     /// default: Transparent where the format keeps it, White where it can't.
     pub(super) background: Option<Background>,
@@ -88,10 +104,16 @@ pub struct QuickView {
     seen: HashMap<JobId, Entry>,
     pub(super) error: Option<String>,
     /// The target the request named, kept while the document pack it needs
-    /// isn't installed, and picked once it is.
+    /// isn't installed, and picked again once it is.
     pub(super) wanted: Option<&'static Format>,
-    /// Some file needed the document pack when the window opened.
-    pub(super) offered_pack: bool,
+    /// The window waited on the pack: a file needed it, or a target that
+    /// needs it was asked for or picked. Only then does it say once the
+    /// pack is in.
+    waited_for_pack: bool,
+    /// Install & Convert was clicked: convert as soon as the pack is in.
+    /// Cleared when the download fails or stops, so nothing converts later
+    /// without another click.
+    pub(super) convert_when_ready: bool,
     /// Convert on convt's cloud instead of on this computer.
     pub(super) cloud: bool,
     /// The registry the targets were computed with.
@@ -114,9 +136,9 @@ impl QuickView {
         let mut files = expanded.files;
         let mut seen = std::collections::HashSet::new();
         files.retain(|f| seen.insert(f.clone()));
-        let targets = model::common_targets(&state.registry, &files);
+        let targets = state.targets_with_pack(&files);
         let generation = state.registry_generation;
-        let offered_pack = files.iter().any(|f| pack::needs_pack(&state.registry, f));
+        let file_needs_pack = files.iter().any(|f| pack::needs_pack(&state.registry, f));
         let mut wanted = None;
         let save_dir = state.settings.output_dir.clone();
         let mut error = None;
@@ -130,8 +152,12 @@ impl QuickView {
             };
         let to = to.filter(|f| {
             let reachable = targets.formats.contains(f);
-            if !reachable && offered_pack {
-                // The card offers the pack; the target waits for it.
+            if targets.pack.contains(f) {
+                // Picked, with the pack's offer: Install & Convert.
+                wanted = Some(*f);
+            } else if !reachable && file_needs_pack {
+                // A document the pack can't help with here (a build with
+                // nothing to download): the card says so.
                 wanted = Some(*f);
             } else if !reachable && error.is_none() {
                 error = Some(unreachable(f, files.len()));
@@ -143,6 +169,7 @@ impl QuickView {
         } else if files.is_empty() {
             error = Some("There are no files to convert here.".into());
         }
+        let waited_for_pack = file_needs_pack || wanted.is_some_and(|f| targets.pack.contains(&f));
         let file_name = cx.new(|cx| InputState::new(window, cx));
         let mut view = Self {
             _name: cx.subscribe(&file_name, |this: &mut Self, _, event, cx| {
@@ -166,6 +193,8 @@ impl QuickView {
             size: None,
             video_codec: None,
             strip_audio: false,
+            target_size: None,
+            strip_metadata: false,
             background: None,
             open: None,
             options_open: false,
@@ -176,8 +205,9 @@ impl QuickView {
             jobs: Vec::new(),
             seen: HashMap::new(),
             error,
+            waited_for_pack,
             wanted,
-            offered_pack,
+            convert_when_ready: false,
             cloud: false,
             generation,
         };
@@ -188,25 +218,85 @@ impl QuickView {
 
     /// Recomputes the targets after the document pack was installed or
     /// removed, and picks the target the request named once it is reachable.
-    /// Converting still takes a click on Convert.
+    /// After Install & Convert, converts as soon as the pack is in; a failed
+    /// or stopped download forgets that, so converting takes a new click.
     fn follow_registry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let state = self.app.read(cx);
-        if state.registry_generation == self.generation || !self.jobs.is_empty() {
+        if !self.jobs.is_empty() {
             return;
         }
-        self.generation = state.registry_generation;
-        self.targets = model::common_targets(&state.registry, &self.files);
-        if self
-            .to
-            .is_some_and(|to| !self.targets.formats.contains(&to))
-        {
-            self.to = None;
+        let state = self.app.read(cx);
+        if state.registry_generation != self.generation {
+            self.generation = state.registry_generation;
+            self.targets = state.targets_with_pack(&self.files);
+            if self
+                .to
+                .is_some_and(|to| !self.targets.formats.contains(&to))
+            {
+                self.to = None;
+            }
+            if self.to.is_none()
+                && let Some(wanted) = self.wanted.filter(|f| self.targets.formats.contains(f))
+            {
+                self.pick(wanted, window, cx);
+            }
+            if self.wanted.is_some_and(|f| !self.targets.pack.contains(&f)) {
+                self.wanted = None;
+            }
         }
-        if self.to.is_none()
-            && let Some(wanted) = self.wanted.filter(|f| self.targets.formats.contains(f))
-        {
-            self.wanted = None;
-            self.pick(wanted, window, cx);
+        if !self.convert_when_ready {
+            return;
+        }
+        let working = matches!(self.app.read(cx).pack.phase, PackPhase::Working(_));
+        match self.to {
+            Some(to) if !self.targets.pack.contains(&to) => {
+                self.convert_when_ready = false;
+                self.convert(cx);
+            }
+            Some(_) if working => {}
+            // Failed, stopped, or the target went away: wait for a click.
+            _ => self.convert_when_ready = false,
+        }
+    }
+
+    /// Whether the picked target needs the document pack first.
+    pub(super) fn needs_pack(&self) -> bool {
+        self.to.is_some_and(|to| self.targets.pack.contains(&to))
+    }
+
+    /// Install & Convert, after its button started the download or found
+    /// one running: convert once the pack is in.
+    fn install_then_convert(&mut self, cx: &mut Context<Self>) {
+        if !self.needs_pack() || !self.jobs.is_empty() {
+            return;
+        }
+        // The download didn't start (Remove is running, or documents are
+        // converting); the card says why.
+        self.convert_when_ready = matches!(self.app.read(cx).pack.phase, PackPhase::Working(_));
+        self.error = None;
+        cx.notify();
+    }
+
+    /// The callback the pack buttons run after starting the download.
+    fn after_install(&self, cx: &mut Context<Self>) -> super::pack::After {
+        let weak = cx.entity().downgrade();
+        std::rc::Rc::new(move |_, cx| {
+            let _ = weak.update(cx, |this, cx| this.install_then_convert(cx));
+        })
+    }
+
+    /// The files in a sentence: "this PDF", "these PDF files" or "these
+    /// files".
+    fn files_named(&self) -> String {
+        let mut formats = self
+            .files
+            .iter()
+            .map(|f| convt_core::format_by_extension(f));
+        let first = formats.next().flatten();
+        let same = first.filter(|f| formats.all(|o| o == Some(*f)));
+        match (self.files.len(), same) {
+            (1, Some(f)) => format!("this {}", f.name),
+            (_, Some(f)) => format!("these {} files", f.name),
+            _ => "these files".to_string(),
         }
     }
 
@@ -225,6 +315,8 @@ impl QuickView {
         self.quality = o.quality;
         self.video_codec = o.video_codec;
         self.strip_audio = o.strip_audio;
+        self.target_size = o.target_size;
+        self.strip_metadata = o.strip_metadata;
         self.background = o.background;
         self.size = self.preset_size();
     }
@@ -255,6 +347,20 @@ impl QuickView {
             .update(cx, |s, cx| s.set_value(name, window, cx));
     }
 
+    /// Makes `to` the target, from a card or a preset.
+    fn set_target(&mut self, to: &'static Format) {
+        if self.to != Some(to) {
+            // Install & Convert was for the other target.
+            self.convert_when_ready = false;
+        }
+        self.to = Some(to);
+        if self.targets.pack.contains(&to) {
+            self.waited_for_pack = true;
+            // The pack's targets convert on this computer once it's in.
+            self.cloud = false;
+        }
+    }
+
     pub(super) fn pick(
         &mut self,
         to: &'static Format,
@@ -262,7 +368,7 @@ impl QuickView {
         cx: &mut Context<Self>,
     ) {
         let changed = self.to != Some(to);
-        self.to = Some(to);
+        self.set_target(to);
         // Size means something else for each kind of target.
         if changed {
             self.size = self.preset_size();
@@ -280,7 +386,7 @@ impl QuickView {
                 self.error = None;
                 if let Some(to) = to {
                     if self.targets.formats.contains(&to) {
-                        self.to = Some(to);
+                        self.set_target(to);
                         self.reset_name(window, cx);
                     } else {
                         self.to = None;
@@ -323,6 +429,16 @@ impl QuickView {
         if audio_applies(to) {
             options.strip_audio = self.strip_audio;
         }
+        // Where the row is hidden (lossless audio), a preset's limit would only
+        // make the conversion fail, with nothing in the window to clear it.
+        options.target_size = if target_size_applies(to) {
+            self.target_size
+        } else {
+            None
+        };
+        if media(to) {
+            options.strip_metadata = self.strip_metadata;
+        }
         // Where the control is hidden (video to GIF), a preset's color would
         // only make the conversion fail, with nothing in the window to clear it.
         options.background = if background_applies(to, &self.files) {
@@ -357,15 +473,12 @@ impl QuickView {
     pub(super) fn convert(&mut self, cx: &mut Context<Self>) {
         let Some(to) = self.to else { return };
         let files = self.supported();
-        if files.is_empty() || !self.jobs.is_empty() {
+        // A target that needs the pack converts through Install & Convert.
+        if files.is_empty() || !self.jobs.is_empty() || self.needs_pack() {
             return;
         }
         let cloud = self.in_cloud(cx);
-        let options = if cloud {
-            Options::default()
-        } else {
-            self.conversion_options()
-        };
+        let options = self.conversion_options();
         if let Err(e) = options.validate() {
             self.error = Some(e.to_string());
             cx.notify();
@@ -380,6 +493,14 @@ impl QuickView {
                 return;
             }
         };
+        if let Output::Exact(path) = &output
+            && files.iter().any(|f| same_file(f, path))
+        {
+            self.name_error = Some("That's the original file's name. Pick another one.".into());
+            self.editing_name = true;
+            cx.notify();
+            return;
+        }
         self.name_error = None;
         if cloud && !self.app.read(cx).settings.cloud_consent {
             return;
@@ -421,7 +542,16 @@ impl QuickView {
 
     /// Cloud is picked and can run.
     fn in_cloud(&self, cx: &App) -> bool {
-        self.cloud && self.cloud_access(cx).ready()
+        self.cloud && self.cloud_access(cx).ready() && self.cloud_blocked().is_none()
+    }
+
+    /// Why Cloud can't take this target although the account could: it
+    /// doesn't compress a file into its own format.
+    fn cloud_blocked(&self) -> Option<&'static str> {
+        let to = self.to?;
+        sources(&self.files)
+            .any(|f| f == to)
+            .then_some("Compressing a file into its own format runs on this computer.")
     }
 
     pub(super) fn set_cloud(&mut self, cloud: bool, cx: &mut Context<Self>) {
@@ -628,7 +758,15 @@ impl QuickView {
         });
         let cards = self.targets.formats.iter().map(|&format| {
             let on = self.to == Some(format);
+            // A file's own format makes a smaller or cleaner copy of it.
+            let same = sources(&self.files).all(|f| f == format);
+            let needs_pack = self.targets.pack.contains(&format);
             let weak = cx.entity().downgrade();
+            let blurb = if same {
+                "Compress"
+            } else {
+                blurb(format, video_input)
+            };
             theme::choice(
                 theme::clickable(SharedString::from(format!("to-{}", format.id)), format.name),
                 on,
@@ -667,11 +805,27 @@ impl QuickView {
                             .child(icon(IconName::Check, 10., p.on_green))
                     })),
             )
-            .child(
-                styled(size::CAPTION, if on { p.green_text } else { p.secondary })
-                    .truncate()
-                    .child(blurb(format, video_input)),
-            )
+            .map(|d| {
+                if needs_pack {
+                    d.child(super::pack::tag(
+                        SharedString::from(format!("pack-tag-{}", format.id)),
+                        on,
+                        p,
+                    ))
+                } else {
+                    d.child(
+                        div()
+                            .id(SharedString::from(format!("blurb-{}", format.id)))
+                            .test_support()
+                            .aria_label(blurb)
+                            .child(
+                                styled(size::CAPTION, if on { p.green_text } else { p.secondary })
+                                    .truncate()
+                                    .child(blurb),
+                            ),
+                    )
+                }
+            })
         });
         let presets: Vec<(String, String)> = self
             .app
@@ -757,11 +911,21 @@ impl QuickView {
     /// The document pack card, or the line saying it was installed.
     fn pack_section(&self, p: &Palette, cx: &mut Context<Self>) -> Option<Div> {
         let waiting = self.waiting_for_pack(cx);
-        let content = if waiting > 0 {
+        let content = if waiting > 0 || self.needs_pack() {
             let mixed = waiting < self.files.len();
-            super::pack::card(&self.app, mixed, p, cx).into_any_element()
-        } else if self.offered_pack && self.app.read(cx).pack.phase == PackPhase::Done {
-            super::pack::installed_notice(p).into_any_element()
+            let need = match self.to {
+                // The files open without the pack; only the target needs it.
+                Some(to) if self.needs_pack() && mixed => super::pack::Need::Target {
+                    from: self.files_named(),
+                    to: to.name,
+                },
+                _ => super::pack::Need::Files { mixed },
+            };
+            // With a target that needs the pack, Install & Convert below
+            // is the one action.
+            super::pack::card(&self.app, &need, !self.needs_pack(), p, cx).into_any_element()
+        } else if self.waited_for_pack && self.app.read(cx).pack.phase == PackPhase::Done {
+            super::pack::installed_notice(self.to.is_some(), p).into_any_element()
         } else {
             return None;
         };
@@ -794,18 +958,6 @@ impl QuickView {
 
     fn options_section(&self, p: &Palette, cx: &mut Context<Self>) -> Option<Div> {
         let to = self.to?;
-        if self.in_cloud(cx) {
-            // The cloud API takes no options, so there is nothing to set.
-            return Some(
-                section("Options", p).child(
-                    theme::styled(theme::size::SMALL, p.secondary)
-                        .id("cloud-options")
-                        .test_support()
-                        .aria_label("Cloud converts with the standard settings.")
-                        .child("Cloud converts with the standard settings."),
-                ),
-            );
-        }
         let quality = quality_applies(to).then(|| {
             let mut choices: Vec<(&'static str, SharedString)> = QUALITY
                 .iter()
@@ -970,10 +1122,70 @@ impl QuickView {
                 p,
             )
         });
-        let mut rows: Vec<AnyElement> = [quality, size, codec, background, audio]
-            .into_iter()
-            .flatten()
-            .collect();
+        let target_size = target_size_applies(to).then(|| {
+            let mut choices: Vec<Option<u64>> = TARGET_SIZES.to_vec();
+            // A preset's own limit gets an entry of its own, which stays
+            // pickable after choosing another.
+            for custom in [self.options.target_size, self.target_size] {
+                if !choices.contains(&custom) {
+                    choices.push(custom);
+                }
+            }
+            let id = |v: Option<u64>| v.map_or("none".into(), |v| v.to_string());
+            let toggle = cx.entity().downgrade();
+            let pick = cx.entity().downgrade();
+            row_label(
+                "Max file size",
+                theme::select(
+                    "target-size",
+                    target_size_label(self.target_size),
+                    &id(self.target_size),
+                    SELECT_WIDTH,
+                    false,
+                    self.open == Some(Open::TargetSize),
+                    choices
+                        .iter()
+                        .map(|&v| Choice::new(id(v), target_size_label(v)))
+                        .collect(),
+                    p,
+                    move |_, cx| {
+                        let _ = toggle.update(cx, |this, cx| this.toggle(Open::TargetSize, cx));
+                    },
+                    move |id, _, cx| {
+                        let value = id.parse().ok();
+                        let _ = pick.update(cx, |this, cx| {
+                            this.target_size = value;
+                            this.open = None;
+                            cx.notify();
+                        });
+                    },
+                ),
+                p,
+            )
+        });
+        let strip_metadata = media(to).then(|| {
+            row_label(
+                "Metadata",
+                theme::checkbox("strip-metadata", "Strip metadata", self.strip_metadata, p)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.strip_metadata = !this.strip_metadata;
+                        cx.notify();
+                    })),
+                p,
+            )
+        });
+        let mut rows: Vec<AnyElement> = [
+            quality,
+            size,
+            target_size,
+            codec,
+            background,
+            audio,
+            strip_metadata,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         if rows.is_empty() {
             return None;
         }
@@ -1117,7 +1329,10 @@ impl QuickView {
                         icon: IconName::Cloud,
                         title: "Cloud".into(),
                         line: "Faster for big videos".into(),
-                        disabled: access.reason().map(Into::into),
+                        disabled: access
+                            .reason()
+                            .or_else(|| self.cloud_blocked().map(Into::into))
+                            .map(Into::into),
                     },
                 ],
                 if cloud { "cloud" } else { "local" },
@@ -1350,7 +1565,9 @@ impl QuickView {
             let first = outputs.first().cloned();
             let only = (outputs.len() == 1).then(|| outputs[0].clone());
             let done = self.finished();
-            let status = match (done, self.cloud) {
+            // Where the jobs run, not what was picked: a same-format
+            // target stays here even with Cloud chosen.
+            let status = match (done, self.in_cloud(cx)) {
                 (true, _) => "Done",
                 (false, true) => "Converting in the cloud…",
                 (false, false) => "Converting…",
@@ -1383,13 +1600,41 @@ impl QuickView {
         }
         let cloud = self.in_cloud(cx);
         let state = self.app.read(cx);
-        let disabled = self.to.is_none()
-            || self.supported().is_empty()
-            || !state.license.allows_conversion()
-            || (cloud && !state.settings.cloud_consent);
-        let label = match self.to {
-            Some(to) if !disabled => format!("Convert to {}", to.name),
-            _ => "Convert".to_string(),
+        let allowed = state.license.allows_conversion();
+        let convert = if self.needs_pack() {
+            let pack = &state.pack;
+            let working = matches!(pack.phase, PackPhase::Working(_));
+            let label = if self.convert_when_ready {
+                "Converts when installed"
+            } else {
+                "Install & Convert"
+            };
+            // Remove is running, or a reinstall waits for documents: the
+            // card says why.
+            let disabled = !allowed
+                || self.convert_when_ready
+                || pack.removing
+                || !pack.offer.configured
+                || (!working && state.documents_locked().is_some());
+            let after = self.after_install(cx);
+            super::pack::install_and_convert_button(&self.app, label.into(), disabled, after, p)
+                .px(px(20.))
+        } else {
+            let disabled = self.to.is_none()
+                || self.supported().is_empty()
+                || !allowed
+                || (cloud && !state.settings.cloud_consent);
+            let label = match self.to {
+                Some(to) if !disabled => format!("Convert to {}", to.name),
+                _ => "Convert".to_string(),
+            };
+            Button::primary("convert", label)
+                .disabled(disabled)
+                .build(p)
+                .px(px(20.))
+                .when(!disabled, |d| {
+                    d.on_click(cx.listener(|this, _, _, cx| this.convert(cx)))
+                })
         };
         let _ = window;
         bar.child(div().flex_1())
@@ -1398,15 +1643,7 @@ impl QuickView {
                     .build(p)
                     .on_click(|_, window, _| window.remove_window()),
             )
-            .child(
-                Button::primary("convert", label)
-                    .disabled(disabled)
-                    .build(p)
-                    .px(px(20.))
-                    .when(!disabled, |d| {
-                        d.on_click(cx.listener(|this, _, _, cx| this.convert(cx)))
-                    }),
-            )
+            .child(convert)
     }
 }
 
@@ -1546,6 +1783,36 @@ fn shown_background(to: &Format, picked: Option<Background>) -> Option<Backgroun
     }
 }
 
+/// Whether `to` is video, audio or an image, for Max file size and Strip
+/// metadata.
+fn media(to: &Format) -> bool {
+    matches!(
+        to.category,
+        Category::Video | Category::Audio | Category::Image
+    )
+}
+
+/// Whether Max file size shows for `to`. Lossless audio (WAV, FLAC, AIFF,
+/// CAF) can't trade quality for size, so the engine refuses a limit there.
+fn target_size_applies(to: &Format) -> bool {
+    media(to) && !matches!(to.id, "wav" | "flac" | "aiff" | "caf")
+}
+
+/// "No limit" or the size as presets write it: "10MB".
+fn target_size_label(bytes: Option<u64>) -> String {
+    bytes.map_or_else(|| "No limit".into(), format_size)
+}
+
+/// Whether `a` and `b` name the same file, even through another spelling of
+/// the folder.
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
 /// Whether `to` is video that can carry audio, for Keep audio.
 fn audio_applies(to: &Format) -> bool {
     to.category == Category::Video && to.id != "gif"
@@ -1592,7 +1859,7 @@ fn size_choices(to: &Format) -> Option<(&'static str, &'static [SizeChoice])> {
                 (Some(512), "512 px"),
             ],
         )),
-        Category::Audio if !matches!(to.id, "wav" | "flac") => Some((
+        Category::Audio if !matches!(to.id, "wav" | "flac" | "aiff" | "caf") => Some((
             "Bitrate",
             &[
                 (None, "Original"),
@@ -1717,9 +1984,11 @@ impl Render for QuickView {
             if let Some(options) = self.options_section(&p, cx) {
                 body.push(options.into_any_element());
             }
-            // Nothing to save while every file waits for the document pack.
-            if !self.supported().is_empty() || waiting == 0 {
-                if self.to.is_some() {
+            // Nothing to save while every file waits for the document pack
+            // and no target is picked yet.
+            if !self.supported().is_empty() || waiting == 0 || self.to.is_some() {
+                // A target that needs the pack converts here once it's in.
+                if self.to.is_some() && !self.needs_pack() {
                     body.push(self.where_section(&p, window, cx).into_any_element());
                 }
                 body.push(self.save_section(&p, cx).into_any_element());
@@ -1750,6 +2019,7 @@ impl Render for QuickView {
             .child(
                 div()
                     .id("quick-body")
+                    .test_support()
                     .flex()
                     .flex_col()
                     .flex_1()
